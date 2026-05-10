@@ -11,21 +11,29 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
-import androidx.compose.material3.Switch
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -58,13 +66,21 @@ class MainActivity : ComponentActivity() {
                     state = state,
                     viewModel = viewModel,
                     previewView = previewView,
-                    onStart = { requestCameraPermissionAndStart() },
-                    onStop = { viewModel.stop() },
                     onSpeechToggle = { viewModel.setSpeechEnabled(it) },
                     onHapticsToggle = { viewModel.setHapticsEnabled(it) }
                 )
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        requestCameraPermissionAndStart()
+    }
+
+    override fun onStop() {
+        viewModel.stop()
+        super.onStop()
     }
 
     private fun requestCameraPermissionAndStart() {
@@ -86,120 +102,136 @@ private fun CueMateScreen(
     state: PipelineState,
     viewModel: CueMateViewModel,
     previewView: PreviewView,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
     onSpeechToggle: (Boolean) -> Unit,
     onHapticsToggle: (Boolean) -> Unit,
 ) {
     Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .padding(padding)
-                .fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
+                .fillMaxSize()
+                .background(Color.Black)
         ) {
-            // Camera Preview - Takes up 70% of screen when running
-            if (state.isRunning) {
+            AndroidView(
+                factory = { previewView },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .semantics { contentDescription = "Camera preview" },
+                update = {
+                    viewModel.setPreviewView(it)
+                }
+            )
+
+            state.lastCue?.let { cue ->
+                Text(
+                    text = "Detected: ${cue.type}\nDirection: ${cue.direction}",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .background(Color.Black.copy(alpha = 0.65f))
+                        .padding(8.dp)
+                )
+            }
+
+            Text(
+                text = state.debugText,
+                color = Color.White,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 12.dp, bottom = 164.dp)
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .padding(8.dp)
+                    .semantics { contentDescription = "Model debug text" }
+            )
+
+            BoxWithConstraints(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(156.dp)
+                    .background(Color(0xFFF0E3FF).copy(alpha = 0.98f))
+            ) {
+                val halfWidth = maxWidth / 2
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(0.7f)
-                        .background(Color.Black)
+                        .fillMaxSize()
                 ) {
-                    AndroidView(
-                        factory = { previewView },
+                    Row(
                         modifier = Modifier
                             .fillMaxSize()
-                            .semantics { contentDescription = "Camera preview" },
-                        update = {
-                            viewModel.setPreviewView(it)
-                        }
-                    )
-                    
-                    // Debug overlay with smile detection info
-                    state.lastCue?.let { cue ->
-                        Text(
-                            text = "Detected: ${cue.type}\nDirection: ${cue.direction}",
-                            color = Color.White,
-                            fontSize = 14.sp,
+                            .padding(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        FeedbackToggleButton(
+                            label = if (state.hapticsEnabled) "Haptics\nON" else "Haptics\nOFF",
                             modifier = Modifier
-                                .padding(12.dp)
-                                .background(Color.Black.copy(alpha = 0.6f))
-                                .padding(8.dp)
+                                .width(halfWidth - 15.dp)
+                                .fillMaxHeight(),
+                            enabled = state.hapticsEnabled,
+                            onClick = { onHapticsToggle(!state.hapticsEnabled) }
+                        )
+
+                        FeedbackToggleButton(
+                            label = if (state.speechEnabled) "Sound\nON" else "Sound\nOFF",
+                            modifier = Modifier
+                                .width(halfWidth - 15.dp)
+                                .fillMaxHeight(),
+                            enabled = state.speechEnabled,
+                            onClick = { onSpeechToggle(!state.speechEnabled) }
                         )
                     }
-                    Text(
-                        text = state.debugText,
-                        color = Color.White,
-                        fontSize = 12.sp,
+
+                    Divider(
+                        color = Color(0xFF6B5A7A).copy(alpha = 0.55f),
                         modifier = Modifier
-                            .padding(12.dp)
-                            .align(androidx.compose.ui.Alignment.BottomStart)
-                            .background(Color.Black.copy(alpha = 0.6f))
-                            .padding(8.dp)
+                            .align(Alignment.Center)
+                            .padding(vertical = 18.dp)
+                            .width(1.dp)
                     )
                 }
             }
-            
-            // Control Panel - Takes up 30% of screen
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(0.3f)
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+
+            state.errorMessage?.let {
                 Text(
-                    text = if (state.isRunning) "Scanning" else "Idle",
-                    modifier = Modifier.semantics { contentDescription = "Pipeline status" }
-                )
-                Text(
-                    text = state.debugText,
+                    text = "Error: $it",
+                    color = Color.Red,
                     fontSize = 12.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.semantics { contentDescription = "Model debug text" }
-                )
-                Button(
-                    onClick = if (state.isRunning) onStop else onStart,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics {
-                            contentDescription = if (state.isRunning) "Stop scanning" else "Start scanning"
-                        }
-                ) {
-                    Text(if (state.isRunning) "Stop" else "Start")
-                }
-                Column {
-                    Text(
-                        text = "Speech feedback",
-                        modifier = Modifier.semantics { contentDescription = "Speech feedback label" }
-                    )
-                    Switch(
-                        checked = state.speechEnabled,
-                        onCheckedChange = onSpeechToggle,
-                        modifier = Modifier.semantics { contentDescription = "Toggle speech feedback" }
-                    )
-                }
-                Column {
-                    Text(
-                        text = "Haptic feedback",
-                        modifier = Modifier.semantics { contentDescription = "Haptic feedback label" }
-                    )
-                    Switch(
-                        checked = state.hapticsEnabled,
-                        onCheckedChange = onHapticsToggle,
-                        modifier = Modifier.semantics { contentDescription = "Toggle haptic feedback" }
-                    )
-                }
-                state.errorMessage?.let {
-                    Text(
-                        text = "Error: $it",
-                        color = Color.Red,
-                        fontSize = 12.sp,
-                        modifier = Modifier.semantics { contentDescription = "Error message" }
-                    )
-                }
+                        .align(Alignment.TopCenter)
+                        .padding(top = 12.dp)
+                        .background(Color.Black.copy(alpha = 0.65f))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .semantics { contentDescription = "Error message" }
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun FeedbackToggleButton(
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val background = if (enabled) Color(0xFF2E7D32) else Color(0xFF7A6D8A)
+    val borderColor = if (enabled) Color(0xFFA5D6A7) else Color(0xFFD0C2E1)
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(containerColor = background),
+        modifier = modifier
+            .border(1.dp, borderColor, RoundedCornerShape(22.dp))
+            .semantics { contentDescription = label.replace("\n", " ") },
+        shape = RoundedCornerShape(22.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White
+        )
     }
 }
