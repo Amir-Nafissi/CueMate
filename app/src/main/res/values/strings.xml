@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">CueMate</string>
+    <string name="start_scanning">Start scanning</string>
+    <string name="stop_scanning">Stop scanning</string>
+    <string name="status_idle">Idle</string>
+    <string name="status_running">Scanning</string>
+    <string name="status_error">Error</string>
+    <string name="open_settings">Open settings</string>
+    <string name="close_settings">Close settings</string>
+    <string name="speech_rate">Speech rate</string>
+    <string name="haptic_intensity">Haptic intensity</string>
+    <string name="enable_speech">Enable speech feedback</string>
+    <string name="enable_haptics">Enable haptic feedback</string>
+    <string name="camera_permission_required">Camera permission is required to detect social cues.</string>
+    <string name="microphone_permission_required">Microphone permission is required for voice commands.</string>
+</resources>

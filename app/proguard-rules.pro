@@ -1,0 +1,6 @@
+-keep class com.google.mediapipe.** { *; }
+-keep class com.google.mediapipe.tasks.** { *; }
+-keep class com.google.mediapipe.framework.** { *; }
+-keep class org.tensorflow.** { *; }
+-dontwarn com.google.mediapipe.**
+-dontwarn org.tensorflow.**

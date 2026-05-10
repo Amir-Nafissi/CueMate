@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cue_background">#0F172A</color>
+    <color name="cue_surface">#111827</color>
+    <color name="cue_primary">#E2E8F0</color>
+    <color name="cue_secondary">#94A3B8</color>
+</resources>
