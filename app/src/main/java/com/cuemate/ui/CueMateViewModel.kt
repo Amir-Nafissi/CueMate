@@ -1,6 +1,8 @@
 package com.cuemate.ui
 
 import android.content.Context
+import android.util.Log
+import androidx.camera.view.PreviewView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -40,6 +42,7 @@ class CueMateViewModel(
     private var feedbackJob: Job? = null
     private var settingsJob: Job? = null
     private var activeLifecycleOwner: LifecycleOwner? = null
+    private var previewView: PreviewView? = null
 
     init {
         settingsJob = viewModelScope.launch {
@@ -54,6 +57,11 @@ class CueMateViewModel(
                 feedbackEngine.setHapticIntensity(settings.hapticIntensity)
             }
         }
+    }
+
+    fun setPreviewView(view: PreviewView) {
+        previewView = view
+        cameraStreamProvider.previewView = view
     }
 
     fun start(lifecycleOwner: LifecycleOwner) {
@@ -73,6 +81,7 @@ class CueMateViewModel(
                     }
                 }
             } catch (throwable: Throwable) {
+                Log.e("CueMateViewModel", "Camera pipeline error", throwable)
                 handleStartupFailure("Unable to start camera pipeline", throwable)
             }
         }
@@ -80,10 +89,12 @@ class CueMateViewModel(
         feedbackJob = viewModelScope.launch {
             try {
                 cueFusionEngine.cues().collect { cue ->
+                    Log.d("CueMateViewModel", "Cue detected: ${cue.type} from ${cue.direction}")
                     _state.value = _state.value.copy(lastCue = cue)
                     feedbackEngine.provideFeedback(cue)
                 }
             } catch (throwable: Throwable) {
+                Log.e("CueMateViewModel", "Feedback pipeline error", throwable)
                 handleStartupFailure("Feedback pipeline stopped", throwable)
             }
         }
@@ -99,6 +110,7 @@ class CueMateViewModel(
                 }
             }
         }.onFailure { throwable ->
+            Log.w("CueMateViewModel", "Voice commands unavailable", throwable)
             _state.value = _state.value.copy(
                 errorMessage = "Voice commands unavailable: ${throwable.message ?: throwable.javaClass.simpleName}"
             )

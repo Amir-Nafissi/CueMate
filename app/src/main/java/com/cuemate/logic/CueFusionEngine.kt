@@ -1,5 +1,6 @@
 package com.cuemate.logic
 
+import android.util.Log
 import com.cuemate.core.model.CueType
 import com.cuemate.core.model.Direction
 import com.cuemate.core.model.InferenceResult
@@ -21,17 +22,23 @@ class CueFusionEngine {
     fun cues(): Flow<SocialCue> = cueFlow.asSharedFlow()
 
     suspend fun process(inferenceResult: InferenceResult) {
-        val cue = selectCue(inferenceResult) ?: return
-        recentCues.addLast(cue)
-        while (recentCues.size > PipelineConfig.DEBOUNCE_FRAMES) {
-            recentCues.removeFirst()
-        }
-        val stableCue = recentCues.takeIf { it.size == PipelineConfig.DEBOUNCE_FRAMES }?.let { frames ->
-            val first = frames.first()
-            if (frames.all { it.type == first.type && it.direction == first.direction }) first else null
-        }
-        if (stableCue != null) {
-            cueFlow.emit(stableCue)
+        val cue = selectCue(inferenceResult)
+        if (cue != null) {
+            Log.d("CueFusionEngine", "Detected cue: ${cue.type}")
+            recentCues.addLast(cue)
+            while (recentCues.size > PipelineConfig.DEBOUNCE_FRAMES) {
+                recentCues.removeFirst()
+            }
+            val stableCue = recentCues.takeIf { it.size == PipelineConfig.DEBOUNCE_FRAMES }?.let { frames ->
+                val first = frames.first()
+                if (frames.all { it.type == first.type && it.direction == first.direction }) first else null
+            }
+            if (stableCue != null) {
+                Log.d("CueFusionEngine", "Emitting stable cue: ${stableCue.type}")
+                cueFlow.emit(stableCue)
+            } else {
+                Log.d("CueFusionEngine", "Waiting for debounce stability... ${recentCues.size}/${PipelineConfig.DEBOUNCE_FRAMES}")
+            }
         }
     }
 
@@ -64,9 +71,9 @@ class CueFusionEngine {
             return SocialCue(CueType.NEUTRAL, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())
         }
         val type = when {
-            face.smileScore >= 0.65f -> CueType.SMILE
-            face.surpriseScore >= 0.65f -> CueType.SURPRISE
-            face.frownScore >= 0.65f -> CueType.FROWN
+            face.smileScore >= 0.40f -> CueType.SMILE
+            face.surpriseScore >= 0.50f -> CueType.SURPRISE
+            face.frownScore >= 0.40f -> CueType.FROWN
             else -> CueType.NEUTRAL
         }
         return SocialCue(type, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())

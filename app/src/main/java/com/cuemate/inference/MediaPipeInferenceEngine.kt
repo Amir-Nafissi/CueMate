@@ -3,6 +3,7 @@ package com.cuemate.inference
 import com.cuemate.core.model.Direction
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import com.cuemate.core.model.InferenceResult
 import com.cuemate.core.model.RawFaceDetection
 import com.cuemate.core.model.RawHandDetection
@@ -199,7 +200,9 @@ class MediaPipeInferenceEngine(
         if (leftMouth == null || rightMouth == null || upperLip == null || lowerLip == null) return 0f
         val mouthWidth = (rightMouth.x() - leftMouth.x()).let { kotlin.math.abs(it) }
         val mouthOpen = (lowerLip.y() - upperLip.y()).let { kotlin.math.abs(it) }
-        return ((mouthWidth * 1.2f) + (mouthOpen * 0.8f)).coerceIn(0.0f, 1.0f)
+        val score = ((mouthWidth * 1.2f) + (mouthOpen * 0.8f)).coerceIn(0.0f, 1.0f)
+        Log.d("MediaPipeInference", "Smile Score: $score (width=$mouthWidth, open=$mouthOpen)")
+        return score
     }
 
     private fun surpriseScore(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): Float {
