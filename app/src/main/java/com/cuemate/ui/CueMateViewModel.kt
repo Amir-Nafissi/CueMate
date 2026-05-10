@@ -81,7 +81,6 @@ class CueMateViewModel(
                 _state.value = _state.value.copy(debugText = "Camera active, waiting for frames...")
                 cameraStreamProvider.frames().collect { frame ->
                     try {
-                        _state.value = _state.value.copy(debugText = "Analyzing current frame...")
                         val result = inferenceEngine.analyze(frame.image)
                         _state.value = _state.value.copy(debugText = summarizeInference(result))
                         cueFusionEngine.process(result)

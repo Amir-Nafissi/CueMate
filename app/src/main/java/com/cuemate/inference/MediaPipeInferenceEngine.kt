@@ -73,7 +73,7 @@ class MediaPipeInferenceEngine(
                 "pointingup" -> CueType.POINT.name.lowercase()
                 "thumbup", "thumbsup" -> CueType.THUMBS_UP.name.lowercase()
                 "wave" -> CueType.WAVE.name.lowercase()
-                else -> normalizeGestureLabel(gestureLabel)
+                else -> heuristicGestureLabel(landmarkList, gestureLabel)
             }
             handDetections.add(
                 RawHandDetection(
@@ -92,7 +92,7 @@ class MediaPipeInferenceEngine(
                 handDetections.add(
                     RawHandDetection(
                         normalizedCenterX = centerX,
-                        gestureLabel = handedness.lowercase(),
+                        gestureLabel = heuristicGestureLabel(landmarks, handedness),
                         confidence = handConfidenceFromLandmarks(landmarks),
                     )
                 )
@@ -193,6 +193,42 @@ class MediaPipeInferenceEngine(
 
     private fun normalizeGestureLabel(label: String): String {
         return label.lowercase().replace(Regex("[^a-z0-9]+"), "")
+    }
+
+    private fun heuristicGestureLabel(
+        landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>,
+        fallbackLabel: String,
+    ): String {
+        if (landmarks.size < 21) {
+            return normalizeGestureLabel(fallbackLabel)
+        }
+
+        val wrist = landmarks[0]
+        val thumbTip = landmarks[4]
+        val indexTip = landmarks[8]
+        val middleTip = landmarks[12]
+        val ringTip = landmarks[16]
+        val pinkyTip = landmarks[20]
+        val thumbMcp = landmarks[2]
+        val indexPip = landmarks[6]
+        val middlePip = landmarks[10]
+        val ringPip = landmarks[14]
+        val pinkyPip = landmarks[18]
+
+        val thumbUp = thumbTip.y() < wrist.y() - 0.08f && thumbTip.y() < thumbMcp.y() - 0.03f
+        val fingersExtended = listOf(
+            indexTip.y() < indexPip.y() - 0.03f,
+            middleTip.y() < middlePip.y() - 0.03f,
+            ringTip.y() < ringPip.y() - 0.03f,
+            pinkyTip.y() < pinkyPip.y() - 0.03f,
+        ).count { it }
+        val openPalm = fingersExtended >= 3
+
+        return when {
+            thumbUp && fingersExtended <= 1 -> CueType.THUMBS_UP.name.lowercase()
+            openPalm -> CueType.WAVE.name.lowercase()
+            else -> normalizeGestureLabel(fallbackLabel)
+        }
     }
 
     private fun smileScore(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): Float {

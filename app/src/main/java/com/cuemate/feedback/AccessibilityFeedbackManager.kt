@@ -34,7 +34,7 @@ class AccessibilityFeedbackManager(
     private val speechEnabled = AtomicBoolean(true)
     private val hapticsEnabled = AtomicBoolean(true)
     @Volatile
-    private var lastSpokenCue: SocialCue? = null
+    private var lastSpokenCueKey: String? = null
     @Volatile
     private var ttsReady = false
     @Volatile
@@ -43,7 +43,8 @@ class AccessibilityFeedbackManager(
     private var hapticIntensity = 0.75f
 
     override suspend fun provideFeedback(cue: SocialCue) = withContext(Dispatchers.Main) {
-        if (cue == lastSpokenCue) {
+        val cueKey = "${cue.type}:${cue.direction}"
+        if (cueKey == lastSpokenCueKey) {
             return@withContext
         }
         val now = System.currentTimeMillis()
@@ -52,7 +53,7 @@ class AccessibilityFeedbackManager(
             return@withContext
         }
         speechTimestampMs.set(now)
-        lastSpokenCue = cue
+        lastSpokenCueKey = cueKey
         Log.d("AccessibilityFeedback", "provideFeedback: ${cue.type}, ttsReady=$ttsReady, speechEnabled=${speechEnabled.get()}, hapticsEnabled=${hapticsEnabled.get()}")
         if (hapticsEnabled.get()) {
             vibrateForCue(cue)

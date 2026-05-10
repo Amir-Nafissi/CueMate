@@ -60,7 +60,8 @@ class CueFusionEngine {
             .maxByOrNull { it.confidence }
             ?.takeIf { it.confidence >= PipelineConfig.HAND_CONFIDENCE_THRESHOLD }
         val handCue = handDetection?.let { detection ->
-            val cueType = when (normalizeGestureLabel(detection.gestureLabel)) {
+            val normalizedLabel = normalizeGestureLabel(detection.gestureLabel)
+            val cueType = when (normalizedLabel) {
                 "wave" -> CueType.WAVE
                 "point" -> CueType.POINT
                 "thumbup", "thumbsup" -> CueType.THUMBS_UP
