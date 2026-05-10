@@ -225,13 +225,27 @@ class CueMateViewModel(
             }
         } ?: "No hand cue"
         val faceSummary = result.faceDetections.maxByOrNull { it.confidence }?.let { face ->
-            val dominantFaceCue = when {
-                face.smileScore >= 0.50f -> "happy"
-                face.frownScore >= 0.40f -> "upset"
-                face.surpriseScore >= 0.55f -> "surprise"
-                else -> "neutral"
+            val dominantFaceCue: String
+            val displayScore: Float
+            when {
+                face.smileScore >= 0.50f -> {
+                    dominantFaceCue = "happy"
+                    displayScore = face.smileScore
+                }
+                face.frownScore >= 0.40f -> {
+                    dominantFaceCue = "upset"
+                    displayScore = face.frownScore
+                }
+                face.surpriseScore >= 0.55f -> {
+                    dominantFaceCue = "surprise"
+                    displayScore = face.surpriseScore
+                }
+                else -> {
+                    dominantFaceCue = "neutral"
+                    displayScore = face.confidence
+                }
             }
-            "Face $dominantFaceCue ${(face.confidence * 100).toInt()}%"
+            "Face $dominantFaceCue ${(displayScore * 100).toInt()}%"
         } ?: "No face cue"
         return "$handSummary | $faceSummary"
     }
