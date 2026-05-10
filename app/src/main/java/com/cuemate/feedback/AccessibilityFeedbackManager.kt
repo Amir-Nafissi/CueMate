@@ -36,6 +36,8 @@ class AccessibilityFeedbackManager(
     private var lastSpokenCue: SocialCue? = null
     @Volatile
     private var ttsReady = false
+    @Volatile
+    private var hapticIntensity = 0.75f
 
     override suspend fun provideFeedback(cue: SocialCue) = withContext(Dispatchers.Main) {
         if (cue == lastSpokenCue) {

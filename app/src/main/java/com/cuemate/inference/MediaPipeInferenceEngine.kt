@@ -1,5 +1,6 @@
 package com.cuemate.inference
 
+import com.cuemate.core.model.Direction
 import android.content.Context
 import android.os.SystemClock
 import com.cuemate.core.model.InferenceResult
@@ -112,54 +113,23 @@ class MediaPipeInferenceEngine(
     }
 
     private fun createFaceLandmarker(): FaceLandmarker {
-        return createWithFallback(
-            gpu = {
-                FaceLandmarker.createFromOptions(context, faceOptions(BaseOptions.Delegate.GPU))
-            },
-            cpu = {
-                FaceLandmarker.createFromOptions(context, faceOptions(BaseOptions.Delegate.CPU))
-            },
-        )
+        return FaceLandmarker.createFromOptions(context, faceOptions())
     }
 
     private fun createHandLandmarker(): HandLandmarker {
-        return createWithFallback(
-            gpu = {
-                HandLandmarker.createFromOptions(context, handOptions(BaseOptions.Delegate.GPU))
-            },
-            cpu = {
-                HandLandmarker.createFromOptions(context, handOptions(BaseOptions.Delegate.CPU))
-            },
-        )
+        return HandLandmarker.createFromOptions(context, handOptions())
     }
 
     private fun createGestureRecognizer(): GestureRecognizer {
-        return createWithFallback(
-            gpu = {
-                GestureRecognizer.createFromOptions(context, gestureOptions(BaseOptions.Delegate.GPU))
-            },
-            cpu = {
-                GestureRecognizer.createFromOptions(context, gestureOptions(BaseOptions.Delegate.CPU))
-            },
-        )
+        return GestureRecognizer.createFromOptions(context, gestureOptions())
     }
 
-    private inline fun <T> createWithFallback(gpu: () -> T, cpu: () -> T): T {
-        return try {
-            gpu()
-        } catch (_: RuntimeException) {
-            cpu()
-        } catch (_: IllegalStateException) {
-            cpu()
-        }
-    }
 
-    private fun faceOptions(delegate: BaseOptions.Delegate): FaceLandmarker.FaceLandmarkerOptions {
+    private fun faceOptions(): FaceLandmarker.FaceLandmarkerOptions {
         return FaceLandmarker.FaceLandmarkerOptions.builder()
             .setBaseOptions(
                 BaseOptions.builder()
-                    .setModelAssetPath("models/face_landmarker.task")
-                    .setDelegate(delegate)
+                    .setModelAssetPath(ModelAssets.FACE_LANDMARKER)
                     .build(),
             )
             .setRunningMode(RunningMode.VIDEO)
@@ -172,12 +142,11 @@ class MediaPipeInferenceEngine(
             .build()
     }
 
-    private fun handOptions(delegate: BaseOptions.Delegate): HandLandmarker.HandLandmarkerOptions {
+    private fun handOptions(): HandLandmarker.HandLandmarkerOptions {
         return HandLandmarker.HandLandmarkerOptions.builder()
             .setBaseOptions(
                 BaseOptions.builder()
-                    .setModelAssetPath("models/hand_landmarker.task")
-                    .setDelegate(delegate)
+                    .setModelAssetPath(ModelAssets.HAND_LANDMARKER)
                     .build(),
             )
             .setRunningMode(RunningMode.VIDEO)
@@ -188,12 +157,11 @@ class MediaPipeInferenceEngine(
             .build()
     }
 
-    private fun gestureOptions(delegate: BaseOptions.Delegate): GestureRecognizer.GestureRecognizerOptions {
+    private fun gestureOptions(): GestureRecognizer.GestureRecognizerOptions {
         return GestureRecognizer.GestureRecognizerOptions.builder()
             .setBaseOptions(
                 BaseOptions.builder()
-                    .setModelAssetPath("models/gesture_recognizer.task")
-                    .setDelegate(delegate)
+                    .setModelAssetPath(ModelAssets.GESTURE_RECOGNIZER)
                     .build(),
             )
             .setRunningMode(RunningMode.VIDEO)
