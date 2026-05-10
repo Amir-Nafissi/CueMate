@@ -69,6 +69,7 @@ class CueMateViewModel(
     fun start(lifecycleOwner: LifecycleOwner) {
         if (_state.value.isRunning) return
         activeLifecycleOwner = lifecycleOwner
+        feedbackEngine.resetSession()
         _state.value = _state.value.copy(
             isRunning = true,
             errorMessage = null,
@@ -148,13 +149,18 @@ class CueMateViewModel(
 
     private fun summarizeInference(result: com.cuemate.core.model.InferenceResult): String {
         val handSummary = result.handDetections.maxByOrNull { it.confidence }?.let { detection ->
-            "Hand ${detection.gestureLabel} ${(detection.confidence * 100).toInt()}% @ ${String.format(java.util.Locale.US, "%.2f", detection.normalizedCenterX)}"
+            val label = detection.gestureLabel.lowercase()
+            if (label == "none" || detection.confidence < com.cuemate.core.model.PipelineConfig.HAND_CONFIDENCE_THRESHOLD) {
+                "No hand cue"
+            } else {
+                "Hand ${detection.gestureLabel} ${(detection.confidence * 100).toInt()}% @ ${String.format(java.util.Locale.US, "%.2f", detection.normalizedCenterX)}"
+            }
         } ?: "No hand cue"
         val faceSummary = result.faceDetections.maxByOrNull { it.confidence }?.let { face ->
             val dominantFaceCue = when {
                 face.smileScore >= 0.40f -> "smile"
-                face.surpriseScore >= 0.50f -> "surprise"
-                face.frownScore >= 0.40f -> "frown"
+                face.surpriseScore >= 0.55f -> "surprise"
+                face.frownScore >= 0.97f -> "frown"
                 else -> "neutral"
             }
             "Face $dominantFaceCue ${(face.confidence * 100).toInt()}%"

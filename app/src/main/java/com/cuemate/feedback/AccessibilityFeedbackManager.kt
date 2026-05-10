@@ -84,6 +84,12 @@ class AccessibilityFeedbackManager(
         hapticIntensity = intensity.coerceIn(0.0f, 1.0f)
     }
 
+    fun resetSession() {
+        speechTimestampMs.set(0L)
+        lastSpokenCueKey = null
+        pendingCue = null
+    }
+
     fun startVoiceCommands(onCommand: (String) -> Unit) {
         val microphoneGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         if (!microphoneGranted) {
@@ -130,6 +136,7 @@ class AccessibilityFeedbackManager(
             CueType.WAVE -> "Someone waving ahead"
             CueType.POINT -> "Someone pointing ahead"
             CueType.THUMBS_UP -> "Someone gave a thumbs up"
+            CueType.THUMBS_DOWN -> "Someone gave a thumbs down"
             CueType.HANDSHAKE_REACH -> "Someone reaching for a handshake"
         }
         val tts = textToSpeech ?: return false
@@ -159,7 +166,7 @@ class AccessibilityFeedbackManager(
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val effect = when (cue.type) {
-                CueType.WAVE, CueType.POINT, CueType.THUMBS_UP, CueType.HANDSHAKE_REACH ->
+                CueType.WAVE, CueType.POINT, CueType.THUMBS_UP, CueType.THUMBS_DOWN, CueType.HANDSHAKE_REACH ->
                     VibrationEffect.createWaveform(longArrayOf(0, 40, 40, 40), intArrayOf(0, amplitude, 0, amplitude), -1)
                 else -> VibrationEffect.createOneShot(90, amplitude)
             }
@@ -173,13 +180,9 @@ class AccessibilityFeedbackManager(
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             val tts = textToSpeech ?: return
-            val preferredLocales = listOf(Locale.getDefault(), Locale.US)
-            val chosenLocale = preferredLocales.firstOrNull { locale ->
-                tts.isLanguageAvailable(locale) >= TextToSpeech.LANG_AVAILABLE
-            } ?: Locale.US
-            val languageResult = tts.setLanguage(chosenLocale)
+            val languageResult = tts.setLanguage(Locale.US)
             ttsReady = languageResult >= TextToSpeech.LANG_AVAILABLE
-            Log.d("AccessibilityFeedback", "onInit: status=SUCCESS, locale=$chosenLocale, languageResult=$languageResult, ttsReady=$ttsReady")
+            Log.d("AccessibilityFeedback", "onInit: status=SUCCESS, locale=${Locale.US}, languageResult=$languageResult, ttsReady=$ttsReady")
             if (ttsReady) {
                 pendingCue?.let { cue ->
                     pendingCue = null

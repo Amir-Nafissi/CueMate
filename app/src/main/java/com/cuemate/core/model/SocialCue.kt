@@ -15,6 +15,7 @@ enum class CueType {
     WAVE,
     POINT,
     THUMBS_UP,
+    THUMBS_DOWN,
     HANDSHAKE_REACH
 }
 

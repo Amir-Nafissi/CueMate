@@ -65,6 +65,7 @@ class CueFusionEngine {
                 "wave" -> CueType.WAVE
                 "point" -> CueType.POINT
                 "thumbup", "thumbsup" -> CueType.THUMBS_UP
+                "thumbdown", "thumbsdown" -> CueType.THUMBS_DOWN
                 "openpalm" -> CueType.WAVE
                 "closedfist" -> null
                 else -> null
@@ -80,8 +81,8 @@ class CueFusionEngine {
         }
         val type = when {
             face.smileScore >= 0.40f -> CueType.SMILE
-            face.surpriseScore >= 0.50f -> CueType.SURPRISE
-            face.frownScore >= 0.40f -> CueType.FROWN
+            face.surpriseScore >= 0.55f -> CueType.SURPRISE
+            face.frownScore >= 0.97f -> CueType.FROWN
             else -> CueType.NEUTRAL
         }
         return SocialCue(type, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())
@@ -92,7 +93,7 @@ class CueFusionEngine {
     }
 
     private fun isHandCue(type: CueType): Boolean {
-        return type == CueType.WAVE || type == CueType.POINT || type == CueType.THUMBS_UP || type == CueType.HANDSHAKE_REACH
+        return type == CueType.WAVE || type == CueType.POINT || type == CueType.THUMBS_UP || type == CueType.THUMBS_DOWN || type == CueType.HANDSHAKE_REACH
     }
 
     private fun direction(centerX: Float): Direction = when {

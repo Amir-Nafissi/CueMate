@@ -62,38 +62,36 @@ class MediaPipeInferenceEngine(
 
         val handDetections = mutableListOf<RawHandDetection>()
         val gestureSets = gestureResult.gestures()
-        val handLandmarks = gestureResult.landmarks()
+        val gestureLandmarks = gestureResult.landmarks()
+        val fallbackHandLandmarks = handResult.landmarks()
         for (index in gestureSets.indices) {
             val gestureLabel = gestureSets[index].firstOrNull()?.categoryName().orEmpty()
             val confidence = gestureSets[index].firstOrNull()?.score() ?: 0f
-            val landmarkList = handLandmarks.getOrNull(index).orEmpty()
-            val centerX = handCenterX(landmarkList)
-            val selectedLabel = when (normalizeGestureLabel(gestureLabel)) {
-                "openpalm" -> CueType.WAVE.name.lowercase()
-                "pointingup" -> CueType.POINT.name.lowercase()
-                "thumbup", "thumbsup" -> CueType.THUMBS_UP.name.lowercase()
-                "wave" -> CueType.WAVE.name.lowercase()
-                else -> heuristicGestureLabel(landmarkList, gestureLabel)
+            val landmarkList = gestureLandmarks.getOrNull(index).orEmpty().ifEmpty {
+                fallbackHandLandmarks.getOrNull(index).orEmpty()
             }
+            val centerX = handCenterX(landmarkList)
+            val classification = classifyHandGesture(landmarkList, gestureLabel)
             handDetections.add(
                 RawHandDetection(
                     normalizedCenterX = centerX,
-                    gestureLabel = selectedLabel,
-                    confidence = confidence.coerceAtLeast(handConfidenceFromLandmarks(landmarkList)),
+                    gestureLabel = classification.label,
+                    confidence = confidence.coerceAtLeast(classification.confidence),
                 )
             )
         }
 
         if (handDetections.isEmpty()) {
-            for (index in handResult.landmarks().indices) {
-                val landmarks = handResult.landmarks()[index]
+            for (index in fallbackHandLandmarks.indices) {
+                val landmarks = fallbackHandLandmarks[index]
                 val handedness = handResult.handedness().getOrNull(index)?.firstOrNull()?.categoryName().orEmpty()
                 val centerX = handCenterX(landmarks)
+                val classification = classifyHandGesture(landmarks, handedness)
                 handDetections.add(
                     RawHandDetection(
                         normalizedCenterX = centerX,
-                        gestureLabel = heuristicGestureLabel(landmarks, handedness),
-                        confidence = handConfidenceFromLandmarks(landmarks),
+                        gestureLabel = classification.label,
+                        confidence = classification.confidence,
                     )
                 )
             }
@@ -187,20 +185,25 @@ class MediaPipeInferenceEngine(
         return if (xs.isEmpty()) 0.5f else xs.average().toFloat().coerceIn(0.0f, 1.0f)
     }
 
-    private fun handConfidenceFromLandmarks(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): Float {
-        return if (landmarks.isEmpty()) 0f else 0.75f
-    }
-
     private fun normalizeGestureLabel(label: String): String {
         return label.lowercase().replace(Regex("[^a-z0-9]+"), "")
     }
 
-    private fun heuristicGestureLabel(
+    private data class HandClassification(
+        val label: String,
+        val confidence: Float,
+    )
+
+    private fun classifyHandGesture(
         landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>,
         fallbackLabel: String,
-    ): String {
+    ): HandClassification {
         if (landmarks.size < 21) {
-            return normalizeGestureLabel(fallbackLabel)
+            val normalizedFallback = normalizeGestureLabel(fallbackLabel)
+            return HandClassification(
+                label = normalizedFallback,
+                confidence = if (normalizedFallback.isBlank() || normalizedFallback == "none") 0.20f else 0.40f,
+            )
         }
 
         val wrist = landmarks[0]
@@ -215,19 +218,95 @@ class MediaPipeInferenceEngine(
         val ringPip = landmarks[14]
         val pinkyPip = landmarks[18]
 
-        val thumbUp = thumbTip.y() < wrist.y() - 0.08f && thumbTip.y() < thumbMcp.y() - 0.03f
-        val fingersExtended = listOf(
-            indexTip.y() < indexPip.y() - 0.03f,
-            middleTip.y() < middlePip.y() - 0.03f,
-            ringTip.y() < ringPip.y() - 0.03f,
-            pinkyTip.y() < pinkyPip.y() - 0.03f,
-        ).count { it }
-        val openPalm = fingersExtended >= 3
+        fun distance(a: com.google.mediapipe.tasks.components.containers.NormalizedLandmark, b: com.google.mediapipe.tasks.components.containers.NormalizedLandmark): Float {
+            val dx = a.x() - b.x()
+            val dy = a.y() - b.y()
+            return kotlin.math.sqrt(dx * dx + dy * dy)
+        }
+
+        fun isExtended(tip: com.google.mediapipe.tasks.components.containers.NormalizedLandmark, pip: com.google.mediapipe.tasks.components.containers.NormalizedLandmark): Boolean {
+            return distance(tip, wrist) > distance(pip, wrist) * 1.12f
+        }
+
+        fun isVerticalThumb(tip: com.google.mediapipe.tasks.components.containers.NormalizedLandmark): Boolean {
+            val dx = kotlin.math.abs(tip.x() - wrist.x())
+            val dy = kotlin.math.abs(tip.y() - wrist.y())
+            return dy > dx * 1.15f
+        }
+
+        val indexExtended = isExtended(indexTip, indexPip)
+        val middleExtended = isExtended(middleTip, middlePip)
+        val ringExtended = isExtended(ringTip, ringPip)
+        val pinkyExtended = isExtended(pinkyTip, pinkyPip)
+        val extendedCount = listOf(indexExtended, middleExtended, ringExtended, pinkyExtended).count { it }
+
+        // Use thumb tip vs thumb MCP delta to determine thumb pose with tuned thresholds
+        val dx = thumbTip.x() - thumbMcp.x()
+        val dy = thumbTip.y() - thumbMcp.y()
+        val absDx = kotlin.math.abs(dx)
+        val absDy = kotlin.math.abs(dy)
+
+        // Tunable thresholds derived from device logs
+        val THUMB_UP_HORIZONTAL_MIN = 0.08f
+        val THUMB_DOWN_HORIZONTAL_MIN = 0.07f
+        val THUMB_VERTICAL_MAX = 0.04f
+        val THUMB_DOWN_DY_MIN = 0.03f
+        val THUMB_DOWN_DY_MAX = 0.08f
+
+        // Original vertical heuristic (kept as fallback)
+        val verticalEnough = absDy > absDx * 1.25f && absDy > 0.02f
+
+        val thumbCandidate = extendedCount <= 1
+
+        // Primary heuristics (handle the device orientation where correct thumbs show larger horizontal delta):
+        // - Thumbs up: thumb isolated and clearly right-shifted with tiny vertical jitter
+        // - Thumbs down: thumb isolated and left-shifted with a mid-sized positive vertical delta
+        val thumbUpByHorizontal = thumbCandidate && dx >= THUMB_UP_HORIZONTAL_MIN && absDy <= THUMB_VERTICAL_MAX && dy <= 0.02f
+        val thumbDownByHorizontal = thumbCandidate && dx <= -THUMB_DOWN_HORIZONTAL_MIN && dy >= THUMB_DOWN_DY_MIN && dy <= THUMB_DOWN_DY_MAX
+
+        // Fallback vertical checks when the thumb is actually vertical in the image
+        val thumbUpByVertical = thumbCandidate && verticalEnough && dy < -0.04f && absDx >= 0.04f
+        val thumbDownByVertical = thumbCandidate && verticalEnough && dy > 0.08f && absDx >= 0.05f
+
+        val thumbUpPose = thumbUpByHorizontal || thumbUpByVertical
+        val thumbDownPose = thumbDownByHorizontal || thumbDownByVertical
+
+        // open palm: many fingers extended and thumb not classified as up/down
+        val openPalmPose = extendedCount >= 3 && !thumbUpPose && !thumbDownPose
+
+        val debugLabel = when {
+            thumbUpPose -> "thumb_up"
+            thumbDownPose -> "thumb_down"
+            openPalmPose -> "open_palm"
+            else -> normalizeGestureLabel(fallbackLabel).ifBlank { "none" }
+        }
+        val debugConfidence = when (debugLabel) {
+            "thumb_up", "thumb_down" -> 0.92f
+            "open_palm" -> 0.88f
+            else -> 0.25f
+        }
+        Log.d("MediaPipeInference", "classifyHandGesture: tip=(%.3f,%.3f) mcp=(%.3f,%.3f) dx=%.3f dy=%.3f absDx=%.3f absDy=%.3f vertical=%s ext=%d -> %s(%.2f)".format(thumbTip.x(), thumbTip.y(), thumbMcp.x(), thumbMcp.y(), dx, dy, absDx, absDy, verticalEnough, extendedCount, debugLabel, debugConfidence))
 
         return when {
-            thumbUp && fingersExtended <= 1 -> CueType.THUMBS_UP.name.lowercase()
-            openPalm -> CueType.WAVE.name.lowercase()
-            else -> normalizeGestureLabel(fallbackLabel)
+            thumbUpPose -> HandClassification(CueType.THUMBS_UP.name.lowercase(), 0.92f)
+            thumbDownPose -> HandClassification(CueType.THUMBS_DOWN.name.lowercase(), 0.92f)
+            openPalmPose -> HandClassification(CueType.WAVE.name.lowercase(), 0.88f)
+            else -> {
+                val normalizedFallback = normalizeGestureLabel(fallbackLabel)
+                val confidence = when (normalizedFallback) {
+                    "wave", "thumbup", "thumbsup", "thumbdown", "thumbsdown", "pointingup", "openpalm" -> 0.65f
+                    else -> 0.25f
+                }
+                HandClassification(
+                    label = when (normalizedFallback) {
+                        "thumbup", "thumbsup" -> CueType.THUMBS_UP.name.lowercase()
+                        "thumbdown", "thumbsdown" -> CueType.THUMBS_DOWN.name.lowercase()
+                        "openpalm" -> CueType.WAVE.name.lowercase()
+                        else -> normalizedFallback
+                    },
+                    confidence = confidence,
+                )
+            }
         }
     }
 
