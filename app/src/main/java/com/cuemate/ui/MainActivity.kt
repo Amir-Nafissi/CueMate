@@ -75,7 +75,6 @@ class MainActivity : ComponentActivity() {
             permissionsLauncher.launch(
                 arrayOf(
                     Manifest.permission.CAMERA,
-                    Manifest.permission.RECORD_AUDIO,
                 )
             )
         }
@@ -129,6 +128,16 @@ private fun CueMateScreen(
                                 .padding(8.dp)
                         )
                     }
+                    Text(
+                        text = state.debugText,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .padding(12.dp)
+                            .align(androidx.compose.ui.Alignment.BottomStart)
+                            .background(Color.Black.copy(alpha = 0.6f))
+                            .padding(8.dp)
+                    )
                 }
             }
             
@@ -143,6 +152,12 @@ private fun CueMateScreen(
                 Text(
                     text = if (state.isRunning) "Scanning" else "Idle",
                     modifier = Modifier.semantics { contentDescription = "Pipeline status" }
+                )
+                Text(
+                    text = state.debugText,
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.semantics { contentDescription = "Model debug text" }
                 )
                 Button(
                     onClick = if (state.isRunning) onStop else onStart,

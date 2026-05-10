@@ -1,5 +1,6 @@
     package com.cuemate.camera
 
+    import android.graphics.Bitmap
     import android.os.SystemClock
     import androidx.camera.core.CameraSelector
     import androidx.camera.core.ImageAnalysis
@@ -8,12 +9,13 @@
     import androidx.camera.lifecycle.ProcessCameraProvider
     import androidx.camera.view.PreviewView
     import androidx.lifecycle.LifecycleOwner
-    import com.google.mediapipe.framework.image.MediaImageBuilder
+    import com.google.mediapipe.framework.image.BitmapImageBuilder
     import com.google.mediapipe.framework.image.MPImage
     import kotlinx.coroutines.CoroutineDispatcher
     import kotlinx.coroutines.Dispatchers
     import kotlinx.coroutines.flow.Flow
     import kotlinx.coroutines.flow.MutableSharedFlow
+    import kotlinx.coroutines.channels.BufferOverflow
     import kotlinx.coroutines.flow.asSharedFlow
     import kotlinx.coroutines.withContext
     import java.util.concurrent.ExecutorService
@@ -32,7 +34,10 @@ class CameraStreamProvider(
         private val context: android.content.Context
     ) {
         private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-        private val frameFlow = MutableSharedFlow<CameraFrame>()
+        private val frameFlow = MutableSharedFlow<CameraFrame>(
+            extraBufferCapacity = 4,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
 
         private var lastFrameTimestampMs = 0L
         private var cameraProvider: ProcessCameraProvider? = null
@@ -47,6 +52,7 @@ class CameraStreamProvider(
             cameraProvider = provider
 
             val analysis = ImageAnalysis.Builder()
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
 
@@ -101,12 +107,16 @@ class CameraStreamProvider(
                 return
             }
             lastFrameTimestampMs = now
-            val mediaImage = imageProxy.image ?: run {
+            val plane = imageProxy.planes.firstOrNull() ?: run {
                 imageProxy.close()
                 return
             }
-            val mpImage = MediaImageBuilder(mediaImage).build()
+            val bitmap = Bitmap.createBitmap(imageProxy.width, imageProxy.height, Bitmap.Config.ARGB_8888)
+            plane.buffer.rewind()
+            bitmap.copyPixelsFromBuffer(plane.buffer)
+            val mpImage = BitmapImageBuilder(bitmap).build()
             if (!frameFlow.tryEmit(CameraFrame(mpImage, imageProxy))) {
+                android.util.Log.d("CameraStreamProvider", "Dropping frame because buffer is full")
                 imageProxy.close()
             }
         }

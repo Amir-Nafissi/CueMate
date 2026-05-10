@@ -14,6 +14,7 @@ import com.cuemate.feedback.AccessibilityFeedbackManager
 import com.cuemate.inference.MediaPipeInferenceEngine
 import com.cuemate.logic.CueFusionEngine
 import com.cuemate.settings.UserSettingsRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,7 @@ import kotlinx.coroutines.launch
 data class PipelineState(
     val isRunning: Boolean = false,
     val lastCue: SocialCue? = null,
+    val debugText: String = "Idle",
     val errorMessage: String? = null,
     val speechEnabled: Boolean = true,
     val hapticsEnabled: Boolean = true
@@ -67,19 +69,29 @@ class CueMateViewModel(
     fun start(lifecycleOwner: LifecycleOwner) {
         if (_state.value.isRunning) return
         activeLifecycleOwner = lifecycleOwner
-        _state.value = _state.value.copy(isRunning = true, errorMessage = null)
+        _state.value = _state.value.copy(
+            isRunning = true,
+            errorMessage = null,
+            debugText = "Starting camera..."
+        )
 
         processingJob = viewModelScope.launch {
             try {
                 cameraStreamProvider.start(lifecycleOwner)
+                _state.value = _state.value.copy(debugText = "Camera active, waiting for frames...")
                 cameraStreamProvider.frames().collect { frame ->
                     try {
+                        _state.value = _state.value.copy(debugText = "Analyzing current frame...")
                         val result = inferenceEngine.analyze(frame.image)
+                        _state.value = _state.value.copy(debugText = summarizeInference(result))
                         cueFusionEngine.process(result)
                     } finally {
                         frame.close()
                     }
                 }
+            } catch (cancel: CancellationException) {
+                Log.d("CueMateViewModel", "Camera pipeline cancelled")
+                return@launch
             } catch (throwable: Throwable) {
                 Log.e("CueMateViewModel", "Camera pipeline error", throwable)
                 handleStartupFailure("Unable to start camera pipeline", throwable)
@@ -93,35 +105,21 @@ class CueMateViewModel(
                     _state.value = _state.value.copy(lastCue = cue)
                     feedbackEngine.provideFeedback(cue)
                 }
+            } catch (cancel: CancellationException) {
+                Log.d("CueMateViewModel", "Feedback pipeline cancelled")
+                return@launch
             } catch (throwable: Throwable) {
                 Log.e("CueMateViewModel", "Feedback pipeline error", throwable)
                 handleStartupFailure("Feedback pipeline stopped", throwable)
             }
         }
 
-        runCatching {
-            feedbackEngine.startVoiceCommands { command ->
-                when (command.lowercase()) {
-                    "start" -> startCurrentSession()
-                    "stop" -> stop()
-                    "mute" -> setSpeechEnabled(false)
-                    "faster speech" -> viewModelScope.launch { settingsRepository.setSpeechRate(1.2f) }
-                    "slower speech" -> viewModelScope.launch { settingsRepository.setSpeechRate(0.8f) }
-                }
-            }
-        }.onFailure { throwable ->
-            Log.w("CueMateViewModel", "Voice commands unavailable", throwable)
-            _state.value = _state.value.copy(
-                errorMessage = "Voice commands unavailable: ${throwable.message ?: throwable.javaClass.simpleName}"
-            )
-        }
     }
 
     fun stop() {
         viewModelScope.launch {
             cameraStreamProvider.stop()
         }
-        feedbackEngine.stopVoiceCommands()
         processingJob?.cancel()
         feedbackJob?.cancel()
         processingJob = null
@@ -139,11 +137,30 @@ class CueMateViewModel(
     }
 
     private fun handleStartupFailure(prefix: String, throwable: Throwable) {
+        if (throwable is CancellationException) {
+            return
+        }
         _state.value = _state.value.copy(
             isRunning = false,
             errorMessage = "$prefix: ${throwable.message ?: throwable.javaClass.simpleName}"
         )
         stop()
+    }
+
+    private fun summarizeInference(result: com.cuemate.core.model.InferenceResult): String {
+        val handSummary = result.handDetections.maxByOrNull { it.confidence }?.let { detection ->
+            "Hand ${detection.gestureLabel} ${(detection.confidence * 100).toInt()}% @ ${String.format(java.util.Locale.US, "%.2f", detection.normalizedCenterX)}"
+        } ?: "No hand cue"
+        val faceSummary = result.faceDetections.maxByOrNull { it.confidence }?.let { face ->
+            val dominantFaceCue = when {
+                face.smileScore >= 0.40f -> "smile"
+                face.surpriseScore >= 0.50f -> "surprise"
+                face.frownScore >= 0.40f -> "frown"
+                else -> "neutral"
+            }
+            "Face $dominantFaceCue ${(face.confidence * 100).toInt()}%"
+        } ?: "No face cue"
+        return "$handSummary | $faceSummary"
     }
 
     fun setSpeechEnabled(enabled: Boolean) {

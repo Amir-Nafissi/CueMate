@@ -35,6 +35,7 @@ interface CueObserver {
 object PipelineConfig {
     const val TARGET_FPS = 12
     const val CONFIDENCE_THRESHOLD = 0.65f
+    const val HAND_CONFIDENCE_THRESHOLD = 0.45f
     const val DEBOUNCE_FRAMES = 3
     const val MIN_SPEECH_INTERVAL_MS = 1500L
 }

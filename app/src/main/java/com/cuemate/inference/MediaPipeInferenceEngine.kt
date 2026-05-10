@@ -68,13 +68,12 @@ class MediaPipeInferenceEngine(
             val confidence = gestureSets[index].firstOrNull()?.score() ?: 0f
             val landmarkList = handLandmarks.getOrNull(index).orEmpty()
             val centerX = handCenterX(landmarkList)
-            val selectedLabel = when (gestureLabel.lowercase()) {
-                "open_palm" -> CueType.WAVE.name.lowercase()
-                "pointing_up" -> CueType.POINT.name.lowercase()
-                "thumb_up" -> CueType.THUMBS_UP.name.lowercase()
-                "thumbs_up" -> CueType.THUMBS_UP.name.lowercase()
+            val selectedLabel = when (normalizeGestureLabel(gestureLabel)) {
+                "openpalm" -> CueType.WAVE.name.lowercase()
+                "pointingup" -> CueType.POINT.name.lowercase()
+                "thumbup", "thumbsup" -> CueType.THUMBS_UP.name.lowercase()
                 "wave" -> CueType.WAVE.name.lowercase()
-                else -> gestureLabel.lowercase()
+                else -> normalizeGestureLabel(gestureLabel)
             }
             handDetections.add(
                 RawHandDetection(
@@ -190,6 +189,10 @@ class MediaPipeInferenceEngine(
 
     private fun handConfidenceFromLandmarks(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): Float {
         return if (landmarks.isEmpty()) 0f else 0.75f
+    }
+
+    private fun normalizeGestureLabel(label: String): String {
+        return label.lowercase().replace(Regex("[^a-z0-9]+"), "")
     }
 
     private fun smileScore(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): Float {

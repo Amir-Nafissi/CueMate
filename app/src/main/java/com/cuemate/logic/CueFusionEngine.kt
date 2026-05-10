@@ -25,6 +25,12 @@ class CueFusionEngine {
         val cue = selectCue(inferenceResult)
         if (cue != null) {
             Log.d("CueFusionEngine", "Detected cue: ${cue.type}")
+            if (isHandCue(cue.type)) {
+                Log.d("CueFusionEngine", "Emitting hand cue immediately: ${cue.type}")
+                cueFlow.emit(cue)
+                recentCues.clear()
+                return
+            }
             recentCues.addLast(cue)
             while (recentCues.size > PipelineConfig.DEBOUNCE_FRAMES) {
                 recentCues.removeFirst()
@@ -52,14 +58,15 @@ class CueFusionEngine {
     private fun selectCue(result: InferenceResult): SocialCue? {
         val handDetection = result.handDetections
             .maxByOrNull { it.confidence }
-            ?.takeIf { it.confidence >= PipelineConfig.CONFIDENCE_THRESHOLD }
+            ?.takeIf { it.confidence >= PipelineConfig.HAND_CONFIDENCE_THRESHOLD }
         val handCue = handDetection?.let { detection ->
-            val cueType = when (detection.gestureLabel.lowercase()) {
-                    "wave" -> CueType.WAVE
-                    "point" -> CueType.POINT
-                    "thumb_up", "thumbs_up", "thumbs up" -> CueType.THUMBS_UP
-                    "open_palm", "open palm" -> CueType.HANDSHAKE_REACH
-                    else -> null
+            val cueType = when (normalizeGestureLabel(detection.gestureLabel)) {
+                "wave" -> CueType.WAVE
+                "point" -> CueType.POINT
+                "thumbup", "thumbsup" -> CueType.THUMBS_UP
+                "openpalm" -> CueType.WAVE
+                "closedfist" -> null
+                else -> null
             }
             cueType?.let { type -> SocialCue(type, direction(detection.normalizedCenterX), detection.confidence, System.currentTimeMillis()) }
         }
@@ -77,6 +84,14 @@ class CueFusionEngine {
             else -> CueType.NEUTRAL
         }
         return SocialCue(type, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())
+    }
+
+    private fun normalizeGestureLabel(label: String): String {
+        return label.lowercase().replace(Regex("[^a-z0-9]+"), "")
+    }
+
+    private fun isHandCue(type: CueType): Boolean {
+        return type == CueType.WAVE || type == CueType.POINT || type == CueType.THUMBS_UP || type == CueType.HANDSHAKE_REACH
     }
 
     private fun direction(centerX: Float): Direction = when {
