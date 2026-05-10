@@ -12,6 +12,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.util.Log
 import com.cuemate.core.model.CueType
 import com.cuemate.core.model.FeedbackEngine
 import com.cuemate.core.model.PipelineConfig
@@ -37,6 +38,8 @@ class AccessibilityFeedbackManager(
     @Volatile
     private var ttsReady = false
     @Volatile
+    private var pendingCue: SocialCue? = null
+    @Volatile
     private var hapticIntensity = 0.75f
 
     override suspend fun provideFeedback(cue: SocialCue) = withContext(Dispatchers.Main) {
@@ -50,11 +53,14 @@ class AccessibilityFeedbackManager(
         }
         speechTimestampMs.set(now)
         lastSpokenCue = cue
+        Log.d("AccessibilityFeedback", "provideFeedback: ${cue.type}, ttsReady=$ttsReady, speechEnabled=${speechEnabled.get()}, hapticsEnabled=${hapticsEnabled.get()}")
         if (hapticsEnabled.get()) {
             vibrateForCue(cue)
         }
         if (speechEnabled.get()) {
-            speakForCue(cue)
+            if (!speakForCue(cue)) {
+                pendingCue = cue
+            }
         }
     }
 
@@ -114,7 +120,7 @@ class AccessibilityFeedbackManager(
         speechRecognizer = null
     }
 
-    private fun speakForCue(cue: SocialCue) {
+    private fun speakForCue(cue: SocialCue): Boolean {
         val message = when (cue.type) {
             CueType.SMILE -> "Person ${directionText(cue)} is smiling"
             CueType.FROWN -> "Person ${directionText(cue)} looks upset"
@@ -125,10 +131,15 @@ class AccessibilityFeedbackManager(
             CueType.THUMBS_UP -> "Someone gave a thumbs up"
             CueType.HANDSHAKE_REACH -> "Someone reaching for a handshake"
         }
-        val tts = textToSpeech ?: return
-        if (!ttsReady) return
+        val tts = textToSpeech ?: return false
+        if (!ttsReady) {
+            Log.d("AccessibilityFeedback", "speakForCue deferred: TTS not ready for ${cue.type}")
+            return false
+        }
         tts.stop()
-        tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, "cue_${cue.timestamp}")
+        val result = tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, "cue_${cue.timestamp}")
+        Log.d("AccessibilityFeedback", "speakForCue: '$message' result=$result")
+        return result == TextToSpeech.SUCCESS
     }
 
     private fun directionText(cue: SocialCue): String = when (cue.direction) {
@@ -160,8 +171,22 @@ class AccessibilityFeedbackManager(
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            textToSpeech?.language = Locale.US
-            ttsReady = true
+            val tts = textToSpeech ?: return
+            val preferredLocales = listOf(Locale.getDefault(), Locale.US)
+            val chosenLocale = preferredLocales.firstOrNull { locale ->
+                tts.isLanguageAvailable(locale) >= TextToSpeech.LANG_AVAILABLE
+            } ?: Locale.US
+            val languageResult = tts.setLanguage(chosenLocale)
+            ttsReady = languageResult >= TextToSpeech.LANG_AVAILABLE
+            Log.d("AccessibilityFeedback", "onInit: status=SUCCESS, locale=$chosenLocale, languageResult=$languageResult, ttsReady=$ttsReady")
+            if (ttsReady) {
+                pendingCue?.let { cue ->
+                    pendingCue = null
+                    speakForCue(cue)
+                }
+            }
+        } else {
+            Log.w("AccessibilityFeedback", "onInit failed with status=$status")
         }
     }
 
