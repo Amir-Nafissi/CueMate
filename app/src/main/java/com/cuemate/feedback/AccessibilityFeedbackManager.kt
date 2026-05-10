@@ -137,7 +137,7 @@ class AccessibilityFeedbackManager(
             CueType.POINT -> "Someone pointing ahead"
             CueType.THUMBS_UP -> "Someone gave a thumbs up"
             CueType.THUMBS_DOWN -> "Someone gave a thumbs down"
-            CueType.HANDSHAKE_REACH -> "Someone reaching for a handshake"
+            CueType.HANDSHAKE_REACH -> "Person ${directionText(cue)} wants to shake your hand"
         }
         val tts = textToSpeech ?: return false
         if (!ttsReady) {

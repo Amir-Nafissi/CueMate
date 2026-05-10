@@ -66,6 +66,7 @@ class CueFusionEngine {
                 "point" -> CueType.POINT
                 "thumbup", "thumbsup" -> CueType.THUMBS_UP
                 "thumbdown", "thumbsdown" -> CueType.THUMBS_DOWN
+                "handshake", "handshakereach", "reach", "reachout" -> CueType.HANDSHAKE_REACH
                 "openpalm" -> CueType.WAVE
                 "closedfist" -> null
                 else -> null

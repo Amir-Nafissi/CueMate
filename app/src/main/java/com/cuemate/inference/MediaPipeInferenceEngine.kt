@@ -240,6 +240,9 @@ class MediaPipeInferenceEngine(
         val pinkyExtended = isExtended(pinkyTip, pinkyPip)
         val extendedCount = listOf(indexExtended, middleExtended, ringExtended, pinkyExtended).count { it }
 
+        val fingerTipSpread = distance(indexTip, pinkyTip)
+        val fingerBaseSpread = distance(indexPip, pinkyPip)
+
         // Use thumb tip vs thumb MCP delta to determine thumb pose with tuned thresholds
         val dx = thumbTip.x() - thumbMcp.x()
         val dy = thumbTip.y() - thumbMcp.y()
@@ -271,30 +274,40 @@ class MediaPipeInferenceEngine(
         val thumbUpPose = thumbUpByHorizontal || thumbUpByVertical
         val thumbDownPose = thumbDownByHorizontal || thumbDownByVertical
 
-        // open palm: many fingers extended and thumb not classified as up/down
-        val openPalmPose = extendedCount >= 3 && !thumbUpPose && !thumbDownPose
+        // handshake reach: compact open hand with realistic finger spread (not compressed/partial hands)
+        // True handshakes: spreadTip 0.115-0.177, spreadBase 0.104-0.135
+        // Reject: spreadTip < 0.10 (compressed) or > 0.19 (too wide/wave), spreadBase < 0.09 (compressed) or > 0.15 (wave)
+        val handshakeReachPose = extendedCount >= 3 && !thumbUpPose && !thumbDownPose && 
+            fingerTipSpread >= 0.10f && fingerTipSpread <= 0.19f && 
+            fingerBaseSpread >= 0.09f && fingerBaseSpread <= 0.15f
+
+        // open palm: many fingers extended and the hand is more spread out than a handshake reach
+        val openPalmPose = extendedCount >= 3 && !thumbUpPose && !thumbDownPose && !handshakeReachPose && (fingerTipSpread > 0.19f || fingerBaseSpread > 0.15f)
 
         val debugLabel = when {
             thumbUpPose -> "thumb_up"
             thumbDownPose -> "thumb_down"
+            handshakeReachPose -> "handshake_reach"
             openPalmPose -> "open_palm"
             else -> normalizeGestureLabel(fallbackLabel).ifBlank { "none" }
         }
         val debugConfidence = when (debugLabel) {
             "thumb_up", "thumb_down" -> 0.92f
+            "handshake_reach" -> 0.86f
             "open_palm" -> 0.88f
             else -> 0.25f
         }
-        Log.d("MediaPipeInference", "classifyHandGesture: tip=(%.3f,%.3f) mcp=(%.3f,%.3f) dx=%.3f dy=%.3f absDx=%.3f absDy=%.3f vertical=%s ext=%d -> %s(%.2f)".format(thumbTip.x(), thumbTip.y(), thumbMcp.x(), thumbMcp.y(), dx, dy, absDx, absDy, verticalEnough, extendedCount, debugLabel, debugConfidence))
+        Log.d("MediaPipeInference", "classifyHandGesture: tip=(%.3f,%.3f) mcp=(%.3f,%.3f) dx=%.3f dy=%.3f absDx=%.3f absDy=%.3f vertical=%s ext=%d spreadTip=%.3f spreadBase=%.3f -> %s(%.2f)".format(thumbTip.x(), thumbTip.y(), thumbMcp.x(), thumbMcp.y(), dx, dy, absDx, absDy, verticalEnough, extendedCount, fingerTipSpread, fingerBaseSpread, debugLabel, debugConfidence))
 
         return when {
             thumbUpPose -> HandClassification(CueType.THUMBS_UP.name.lowercase(), 0.92f)
             thumbDownPose -> HandClassification(CueType.THUMBS_DOWN.name.lowercase(), 0.92f)
+            handshakeReachPose -> HandClassification(CueType.HANDSHAKE_REACH.name.lowercase(), 0.86f)
             openPalmPose -> HandClassification(CueType.WAVE.name.lowercase(), 0.88f)
             else -> {
                 val normalizedFallback = normalizeGestureLabel(fallbackLabel)
                 val confidence = when (normalizedFallback) {
-                    "wave", "thumbup", "thumbsup", "thumbdown", "thumbsdown", "pointingup", "openpalm" -> 0.65f
+                    "wave", "thumbup", "thumbsup", "thumbdown", "thumbsdown", "pointingup", "openpalm", "handshake", "handshakereach", "reach", "reachout" -> 0.65f
                     else -> 0.25f
                 }
                 HandClassification(
@@ -302,6 +315,7 @@ class MediaPipeInferenceEngine(
                         "thumbup", "thumbsup" -> CueType.THUMBS_UP.name.lowercase()
                         "thumbdown", "thumbsdown" -> CueType.THUMBS_DOWN.name.lowercase()
                         "openpalm" -> CueType.WAVE.name.lowercase()
+                        "handshake", "handshakereach", "reach", "reachout" -> CueType.HANDSHAKE_REACH.name.lowercase()
                         else -> normalizedFallback
                     },
                     confidence = confidence,
