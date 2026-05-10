@@ -274,15 +274,15 @@ class MediaPipeInferenceEngine(
         val thumbUpPose = thumbUpByHorizontal || thumbUpByVertical
         val thumbDownPose = thumbDownByHorizontal || thumbDownByVertical
 
-        // handshake reach: compact open hand with realistic finger spread (not compressed/partial hands)
-        // True handshakes: spreadTip 0.115-0.177, spreadBase 0.104-0.135
-        // Reject: spreadTip < 0.10 (compressed) or > 0.19 (too wide/wave), spreadBase < 0.09 (compressed) or > 0.15 (wave)
-        val handshakeReachPose = extendedCount >= 3 && !thumbUpPose && !thumbDownPose && 
-            fingerTipSpread >= 0.10f && fingerTipSpread <= 0.19f && 
-            fingerBaseSpread >= 0.09f && fingerBaseSpread <= 0.15f
+        // handshake reach: compact open hand with realistic finger spread and a small thumb offset.
+        // The latest logs show the wave mostly leaking in when the hand is too compact, so keep handshake in a middle band.
+        val handshakeReachPose = extendedCount >= 3 && !thumbUpPose && !thumbDownPose &&
+            fingerTipSpread >= 0.13f && fingerTipSpread <= 0.18f &&
+            fingerBaseSpread >= 0.11f && fingerBaseSpread <= 0.14f &&
+            absDy <= 0.04f
 
         // open palm: many fingers extended and the hand is more spread out than a handshake reach
-        val openPalmPose = extendedCount >= 3 && !thumbUpPose && !thumbDownPose && !handshakeReachPose && (fingerTipSpread > 0.19f || fingerBaseSpread > 0.15f)
+        val openPalmPose = extendedCount >= 3 && !thumbUpPose && !thumbDownPose && !handshakeReachPose && (fingerTipSpread >= 0.18f || fingerBaseSpread >= 0.14f || absDy >= 0.05f)
 
         val debugLabel = when {
             thumbUpPose -> "thumb_up"
