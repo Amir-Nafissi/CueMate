@@ -269,18 +269,18 @@ class MediaPipeInferenceEngine(
         // Primary heuristics tuned from device logcat:
         // - Thumbs up is the compact version of the pose.
         // - Thumbs down is the more open version of the same horizontal thumb offset.
-        val thumbUpByHorizontal = dx >= 0.07f && dx <= 0.09f && absDy <= 0.022f &&
-            fingerTipSpread >= 0.074f && fingerTipSpread <= 0.115f &&
-            fingerBaseSpread >= 0.085f && fingerBaseSpread <= 0.12f &&
+        val thumbUpByHorizontal = dx >= 0.078f && dx <= 0.103f && absDy <= 0.022f &&
+            fingerTipSpread >= 0.089f && fingerTipSpread <= 0.110f &&
+            fingerBaseSpread >= 0.097f && fingerBaseSpread <= 0.116f &&
             extendedCount <= 1
-        val thumbDownByHorizontal = dx <= -0.055f && absDy <= 0.05f &&
-            fingerTipSpread >= 0.075f && fingerTipSpread <= 0.14f &&
-            fingerBaseSpread >= 0.095f && fingerBaseSpread <= 0.16f &&
+        val thumbDownByHorizontal = dx <= -0.061f && dy >= 0.0f && dy <= 0.035f &&
+            absDy <= 0.035f && fingerTipSpread >= 0.057f && fingerTipSpread <= 0.114f &&
+            fingerBaseSpread >= 0.080f && fingerBaseSpread <= 0.114f &&
             extendedCount <= 1
 
         // Fallback vertical checks when the thumb is actually vertical in the image
         val thumbUpByVertical = thumbCandidate && verticalEnough && dy < -0.04f && absDx >= 0.04f
-        val thumbDownByVertical = thumbCandidate && verticalEnough && dy > 0.05f && absDx >= 0.05f
+        val thumbDownByVertical = thumbCandidate && verticalEnough && dy > 0.03f && absDx >= 0.05f
 
         val thumbUpPose = thumbUpByHorizontal || thumbUpByVertical
         val thumbDownPose = thumbDownByHorizontal || thumbDownByVertical
@@ -293,12 +293,12 @@ class MediaPipeInferenceEngine(
             absDy <= 0.08f
 
         // fist bump: compact closed hand with low spread and the thumb/hand staying close to the wrist.
-        // Device logcat shows ext=0, spreadTip roughly 0.087-0.133, spreadBase roughly 0.106-0.161,
+        // Device logcat shows ext=0, spreadTip roughly 0.085-0.133, spreadBase roughly 0.104-0.161,
         // with a small horizontal delta and a larger upward thumb offset.
         val fistBumpPose = extendedCount <= 0 && !thumbUpPose && !thumbDownPose &&
-            fingerTipSpread >= 0.087f && fingerTipSpread <= 0.133f &&
-            fingerBaseSpread >= 0.106f && fingerBaseSpread <= 0.161f &&
-            absDx <= 0.045f && dy >= 0.056f && dy <= 0.109f
+            fingerTipSpread >= 0.085f && fingerTipSpread <= 0.133f &&
+            fingerBaseSpread >= 0.104f && fingerBaseSpread <= 0.161f &&
+            absDx <= 0.045f && dy >= 0.056f && dy <= 0.115f
 
         val debugLabel = when {
             thumbUpPose -> "thumb_up"
