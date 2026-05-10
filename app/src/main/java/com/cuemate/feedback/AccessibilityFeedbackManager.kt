@@ -69,9 +69,6 @@ class AccessibilityFeedbackManager(
 
     fun setSpeechEnabled(enabled: Boolean) {
         speechEnabled.set(enabled)
-        if (!enabled) {
-            textToSpeech?.stop()
-        }
     }
 
     /**
@@ -163,6 +160,7 @@ class AccessibilityFeedbackManager(
             CueType.THUMBS_UP -> "Someone gave a thumbs up"
             CueType.THUMBS_DOWN -> "Someone gave a thumbs down"
             CueType.HANDSHAKE_REACH -> "Person ${directionText(cue)} wants to shake your hand"
+            CueType.FIST_BUMP -> "Someone gave a fist bump"
         }
         val tts = textToSpeech ?: return false
         if (!ttsReady) {

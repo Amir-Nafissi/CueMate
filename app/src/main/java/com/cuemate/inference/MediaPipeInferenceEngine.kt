@@ -45,20 +45,13 @@ class MediaPipeInferenceEngine(
         check(!closed) { "Inference engine is closed" }
         val timestampMs = nextTimestampMs()
 
-        val faceResult = faceLandmarker.detectForVideo(image, timestampMs)
+        // TEMPORARILY DISABLED: Face detection to focus on gesture testing.
+        // Face detection is skipped; only hand gestures are analyzed.
         val handResult = handLandmarker.detectForVideo(image, timestampMs)
         val gestureResult = gestureRecognizer.recognizeForVideo(image, timestampMs)
 
-        val faceDetections = faceResult.faceLandmarks().map { landmarks ->
-            val faceDirectionX = landmarks.firstOrNull()?.x()?.coerceIn(0.0f, 1.0f) ?: 0.5f
-            RawFaceDetection(
-                normalizedCenterX = faceDirectionX,
-                smileScore = smileScore(landmarks),
-                surpriseScore = surpriseScore(landmarks),
-                frownScore = frownScore(landmarks),
-                confidence = faceConfidence(landmarks),
-            )
-        }
+        // Return empty face detections
+        val faceDetections = emptyList<RawFaceDetection>()
 
         val handDetections = mutableListOf<RawHandDetection>()
         val gestureSets = gestureResult.gestures()
@@ -72,11 +65,17 @@ class MediaPipeInferenceEngine(
             }
             val centerX = handCenterX(landmarkList)
             val classification = classifyHandGesture(landmarkList, gestureLabel)
+            val handPoints = landmarkList.mapNotNull { lm ->
+                val x = lm.x()?.coerceIn(0.0f, 1.0f)
+                val y = lm.y()?.coerceIn(0.0f, 1.0f)
+                if (x == null || y == null) null else com.cuemate.core.model.NormalizedPoint(x, y)
+            }
             handDetections.add(
                 RawHandDetection(
                     normalizedCenterX = centerX,
                     gestureLabel = classification.label,
                     confidence = confidence.coerceAtLeast(classification.confidence),
+                    landmarks = handPoints,
                 )
             )
         }
@@ -87,11 +86,17 @@ class MediaPipeInferenceEngine(
                 val handedness = handResult.handedness().getOrNull(index)?.firstOrNull()?.categoryName().orEmpty()
                 val centerX = handCenterX(landmarks)
                 val classification = classifyHandGesture(landmarks, handedness)
+                val handPoints = landmarks.mapNotNull { lm ->
+                    val x = lm.x()?.coerceIn(0.0f, 1.0f)
+                    val y = lm.y()?.coerceIn(0.0f, 1.0f)
+                    if (x == null || y == null) null else com.cuemate.core.model.NormalizedPoint(x, y)
+                }
                 handDetections.add(
                     RawHandDetection(
                         normalizedCenterX = centerX,
                         gestureLabel = classification.label,
                         confidence = classification.confidence,
+                        landmarks = handPoints,
                     )
                 )
             }
@@ -261,40 +266,51 @@ class MediaPipeInferenceEngine(
 
         val thumbCandidate = extendedCount <= 1
 
-        // Primary heuristics (handle the device orientation where correct thumbs show larger horizontal delta):
-        // - Thumbs up: thumb isolated and clearly right-shifted with tiny vertical jitter
-        // - Thumbs down: thumb isolated and left-shifted with a mid-sized positive vertical delta
-        val thumbUpByHorizontal = thumbCandidate && dx >= THUMB_UP_HORIZONTAL_MIN && absDy <= THUMB_VERTICAL_MAX && dy <= 0.02f
-        val thumbDownByHorizontal = thumbCandidate && dx <= -THUMB_DOWN_HORIZONTAL_MIN && dy >= THUMB_DOWN_DY_MIN && dy <= THUMB_DOWN_DY_MAX
+        // Primary heuristics tuned from device logcat:
+        // - Thumbs up is the compact version of the pose.
+        // - Thumbs down is the more open version of the same horizontal thumb offset.
+        val thumbUpByHorizontal = dx >= 0.07f && dx <= 0.09f && absDy <= 0.022f &&
+            fingerTipSpread >= 0.074f && fingerTipSpread <= 0.115f &&
+            fingerBaseSpread >= 0.085f && fingerBaseSpread <= 0.12f &&
+            extendedCount <= 1
+        val thumbDownByHorizontal = dx <= -0.055f && absDy <= 0.05f &&
+            fingerTipSpread >= 0.075f && fingerTipSpread <= 0.14f &&
+            fingerBaseSpread >= 0.095f && fingerBaseSpread <= 0.16f &&
+            extendedCount <= 1
 
         // Fallback vertical checks when the thumb is actually vertical in the image
         val thumbUpByVertical = thumbCandidate && verticalEnough && dy < -0.04f && absDx >= 0.04f
-        val thumbDownByVertical = thumbCandidate && verticalEnough && dy > 0.08f && absDx >= 0.05f
+        val thumbDownByVertical = thumbCandidate && verticalEnough && dy > 0.05f && absDx >= 0.05f
 
         val thumbUpPose = thumbUpByHorizontal || thumbUpByVertical
         val thumbDownPose = thumbDownByHorizontal || thumbDownByVertical
 
-        // handshake reach: compact open hand with realistic finger spread and a small thumb offset.
-        // The latest logs show the wave mostly leaking in when the hand is too compact, so keep handshake in a middle band.
-        val handshakeReachPose = extendedCount >= 3 && !thumbUpPose && !thumbDownPose &&
-            fingerTipSpread >= 0.13f && fingerTipSpread <= 0.18f &&
-            fingerBaseSpread >= 0.11f && fingerBaseSpread <= 0.14f &&
-            absDy <= 0.04f
+        // wave / open palm: the logcat shows stable wave frames with all fingers extended
+        // and a moderate spread band.
+        val openPalmPose = extendedCount >= 4 && !thumbUpPose && !thumbDownPose &&
+            fingerTipSpread >= 0.105f && fingerTipSpread <= 0.21f &&
+            fingerBaseSpread >= 0.09f && fingerBaseSpread <= 0.16f &&
+            absDy <= 0.08f
 
-        // open palm: many fingers extended and the hand is more spread out than a handshake reach
-        val openPalmPose = extendedCount >= 3 && !thumbUpPose && !thumbDownPose && !handshakeReachPose && (fingerTipSpread >= 0.18f || fingerBaseSpread >= 0.14f || absDy >= 0.05f)
+        // fist bump: compact closed hand with low spread and the thumb/hand staying close to the wrist.
+        // Device logcat shows ext=0, spreadTip roughly 0.087-0.133, spreadBase roughly 0.106-0.161,
+        // with a small horizontal delta and a larger upward thumb offset.
+        val fistBumpPose = extendedCount <= 0 && !thumbUpPose && !thumbDownPose &&
+            fingerTipSpread >= 0.087f && fingerTipSpread <= 0.133f &&
+            fingerBaseSpread >= 0.106f && fingerBaseSpread <= 0.161f &&
+            absDx <= 0.045f && dy >= 0.056f && dy <= 0.109f
 
         val debugLabel = when {
             thumbUpPose -> "thumb_up"
             thumbDownPose -> "thumb_down"
-            handshakeReachPose -> "handshake_reach"
             openPalmPose -> "open_palm"
+            fistBumpPose -> "fist_bump"
             else -> normalizeGestureLabel(fallbackLabel).ifBlank { "none" }
         }
         val debugConfidence = when (debugLabel) {
             "thumb_up", "thumb_down" -> 0.92f
-            "handshake_reach" -> 0.86f
             "open_palm" -> 0.88f
+            "fist_bump" -> 0.89f
             else -> 0.25f
         }
         Log.d("MediaPipeInference", "classifyHandGesture: tip=(%.3f,%.3f) mcp=(%.3f,%.3f) dx=%.3f dy=%.3f absDx=%.3f absDy=%.3f vertical=%s ext=%d spreadTip=%.3f spreadBase=%.3f -> %s(%.2f)".format(thumbTip.x(), thumbTip.y(), thumbMcp.x(), thumbMcp.y(), dx, dy, absDx, absDy, verticalEnough, extendedCount, fingerTipSpread, fingerBaseSpread, debugLabel, debugConfidence))
@@ -302,12 +318,12 @@ class MediaPipeInferenceEngine(
         return when {
             thumbUpPose -> HandClassification(CueType.THUMBS_UP.name.lowercase(), 0.92f)
             thumbDownPose -> HandClassification(CueType.THUMBS_DOWN.name.lowercase(), 0.92f)
-            handshakeReachPose -> HandClassification(CueType.HANDSHAKE_REACH.name.lowercase(), 0.86f)
             openPalmPose -> HandClassification(CueType.WAVE.name.lowercase(), 0.88f)
+            fistBumpPose -> HandClassification(CueType.FIST_BUMP.name.lowercase(), 0.89f)
             else -> {
                 val normalizedFallback = normalizeGestureLabel(fallbackLabel)
                 val confidence = when (normalizedFallback) {
-                    "wave", "thumbup", "thumbsup", "thumbdown", "thumbsdown", "pointingup", "openpalm", "handshake", "handshakereach", "reach", "reachout" -> 0.65f
+                    "wave", "thumbup", "thumbsup", "thumbdown", "thumbsdown", "pointingup", "openpalm" -> 0.65f
                     else -> 0.25f
                 }
                 HandClassification(
@@ -315,7 +331,6 @@ class MediaPipeInferenceEngine(
                         "thumbup", "thumbsup" -> CueType.THUMBS_UP.name.lowercase()
                         "thumbdown", "thumbsdown" -> CueType.THUMBS_DOWN.name.lowercase()
                         "openpalm" -> CueType.WAVE.name.lowercase()
-                        "handshake", "handshakereach", "reach", "reachout" -> CueType.HANDSHAKE_REACH.name.lowercase()
                         else -> normalizedFallback
                     },
                     confidence = confidence,

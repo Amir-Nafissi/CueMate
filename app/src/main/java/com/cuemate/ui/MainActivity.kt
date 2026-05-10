@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -24,14 +25,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.contentDescription
@@ -40,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cameraswitch
 import com.cuemate.CueMateApplication
 import com.cuemate.ui.theme.CueMateTheme
 
@@ -67,7 +71,8 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                     previewView = previewView,
                     onSpeechToggle = { viewModel.setSpeechEnabled(it) },
-                    onHapticsToggle = { viewModel.setHapticsEnabled(it) }
+                    onHapticsToggle = { viewModel.setHapticsEnabled(it) },
+                    onCameraToggle = { viewModel.toggleCameraFacing() }
                 )
             }
         }
@@ -104,6 +109,7 @@ private fun CueMateScreen(
     previewView: PreviewView,
     onSpeechToggle: (Boolean) -> Unit,
     onHapticsToggle: (Boolean) -> Unit,
+    onCameraToggle: () -> Unit,
 ) {
     Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
         Box(
@@ -204,6 +210,27 @@ private fun CueMateScreen(
                         .background(Color.Black.copy(alpha = 0.65f))
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                         .semantics { contentDescription = "Error message" }
+                )
+            }
+
+            Button(
+                onClick = onCameraToggle,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF111111).copy(alpha = 0.82f)),
+                shape = CircleShape,
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color.White.copy(alpha = 0.8f)),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
+                    .width(48.dp)
+                    .height(48.dp)
+                    .semantics {
+                        contentDescription = if (state.isFrontCamera) "Switch to rear camera" else "Switch to front camera"
+                    }
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Cameraswitch,
+                    contentDescription = null,
+                    tint = Color.White
                 )
             }
         }

@@ -17,6 +17,7 @@ import com.cuemate.settings.UserSettingsRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import android.os.SystemClock
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -28,6 +29,20 @@ data class PipelineState(
     val errorMessage: String? = null,
     val speechEnabled: Boolean = true,
     val hapticsEnabled: Boolean = true
+    ,
+    val debugOverlayEnabled: Boolean = false,
+    val isFrontCamera: Boolean = false,
+    val fps: Int = 0,
+    val inferenceTimeMs: Long = 0,
+    val faceCount: Int = 0,
+    val handCount: Int = 0,
+    val activeCues: List<String> = emptyList(),
+    val handLabels: List<String> = emptyList(),
+    val lastDx: Float? = null,
+    val lastDy: Float? = null,
+    val lastSmile: Float? = null,
+    val faceLandmarks: List<List<com.cuemate.core.model.NormalizedPoint>> = emptyList(),
+    val handLandmarks: List<List<com.cuemate.core.model.NormalizedPoint>> = emptyList()
 )
 
 class CueMateViewModel(
@@ -78,12 +93,65 @@ class CueMateViewModel(
 
         processingJob = viewModelScope.launch {
             try {
-                cameraStreamProvider.start(lifecycleOwner)
+                cameraStreamProvider.start(lifecycleOwner, _state.value.isFrontCamera)
                 _state.value = _state.value.copy(debugText = "Camera active, waiting for frames...")
                 cameraStreamProvider.frames().collect { frame ->
                     try {
+                        val startMs = SystemClock.elapsedRealtime()
                         val result = inferenceEngine.analyze(frame.image)
-                        _state.value = _state.value.copy(debugText = summarizeInference(result))
+                        val inferenceMs = SystemClock.elapsedRealtime() - startMs
+                        val fps = (1000 / (inferenceMs + 1)).toInt()
+
+                        // Prepare landmarks for overlay
+                        val facePoints = result.faceDetections.map { it.landmarks }
+                        val handPoints = result.handDetections.map { it.landmarks }
+
+                        // derive simple metrics
+                        val faceCount = result.faceDetections.size
+                        val handCount = result.handDetections.size
+                        val handLabels = result.handDetections.map { it.gestureLabel }
+                        val activeCues = result.handDetections.mapNotNull { det ->
+                            if (det.confidence >= com.cuemate.core.model.PipelineConfig.HAND_CONFIDENCE_THRESHOLD) det.gestureLabel else null
+                        } + result.faceDetections.mapNotNull { f ->
+                            if (f.confidence >= com.cuemate.core.model.PipelineConfig.CONFIDENCE_THRESHOLD) {
+                                when {
+                                    f.smileScore >= 0.50f -> "smile"
+                                    f.frownScore >= 0.40f -> "frown"
+                                    f.surpriseScore >= 0.55f -> "surprise"
+                                    else -> null
+                                }
+                            } else null
+                        }
+
+                        var lastDx: Float? = null
+                        var lastDy: Float? = null
+                        if (handPoints.firstOrNull()?.size ?: 0 >= 5) {
+                            val firstHand = handPoints.first()
+                            val thumbTip = firstHand.getOrNull(4)
+                            val thumbMcp = firstHand.getOrNull(2)
+                            if (thumbTip != null && thumbMcp != null) {
+                                lastDx = thumbTip.x - thumbMcp.x
+                                lastDy = thumbTip.y - thumbMcp.y
+                            }
+                        }
+
+                        val lastSmile = result.faceDetections.firstOrNull()?.smileScore
+
+                        _state.value = _state.value.copy(
+                            debugText = summarizeInference(result),
+                            fps = fps,
+                            inferenceTimeMs = inferenceMs,
+                            faceCount = faceCount,
+                            handCount = handCount,
+                            activeCues = activeCues,
+                            handLabels = handLabels,
+                            lastDx = lastDx,
+                            lastDy = lastDy,
+                            lastSmile = lastSmile,
+                            faceLandmarks = facePoints,
+                            handLandmarks = handPoints
+                        )
+
                         cueFusionEngine.process(result)
                     } finally {
                         frame.close()
@@ -170,10 +238,8 @@ class CueMateViewModel(
 
     fun setSpeechEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            // Announce the change immediately, then persist the setting
             try {
-                val msg = if (enabled) "Sound on" else "Sound off"
-                feedbackEngine.announceStatus(msg)
+                feedbackEngine.announceStatus(if (enabled) "Sound on" else "Sound off")
             } catch (e: Exception) {
                 Log.w("CueMateViewModel", "announceStatus failed", e)
             }
@@ -192,6 +258,17 @@ class CueMateViewModel(
             }
             _state.value = _state.value.copy(hapticsEnabled = enabled)
             settingsRepository.setHapticsEnabled(enabled)
+        }
+    }
+
+    fun toggleCameraFacing() {
+        viewModelScope.launch {
+            val nextIsFrontCamera = !_state.value.isFrontCamera
+            _state.value = _state.value.copy(isFrontCamera = nextIsFrontCamera)
+            val lifecycleOwner = activeLifecycleOwner ?: return@launch
+            if (_state.value.isRunning) {
+                cameraStreamProvider.switchCamera(lifecycleOwner, nextIsFrontCamera)
+            }
         }
     }
 

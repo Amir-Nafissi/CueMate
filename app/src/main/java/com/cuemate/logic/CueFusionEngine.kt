@@ -66,9 +66,9 @@ class CueFusionEngine {
                 "point" -> CueType.POINT
                 "thumbup", "thumbsup" -> CueType.THUMBS_UP
                 "thumbdown", "thumbsdown" -> CueType.THUMBS_DOWN
-                "handshake", "handshakereach", "reach", "reachout" -> CueType.HANDSHAKE_REACH
                 "openpalm" -> CueType.WAVE
                 "closedfist" -> null
+                "fistbump" -> CueType.FIST_BUMP
                 else -> null
             }
             cueType?.let { type -> SocialCue(type, direction(detection.normalizedCenterX), detection.confidence, System.currentTimeMillis()) }
@@ -80,15 +80,9 @@ class CueFusionEngine {
         if (face.confidence < PipelineConfig.CONFIDENCE_THRESHOLD) {
             return SocialCue(CueType.NEUTRAL, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())
         }
-        // Map face blend scores into user-friendly cues: prefer clear smile -> happy, clear frown -> upset,
-        // keep surprise detected separately. Thresholds tuned for recall of common expressions.
-        val type = when {
-            face.smileScore >= 0.50f -> CueType.SMILE    // treat as happy
-            face.frownScore >= 0.40f -> CueType.FROWN    // treat as upset
-            face.surpriseScore >= 0.55f -> CueType.SURPRISE
-            else -> CueType.NEUTRAL
-        }
-        return SocialCue(type, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())
+        // TEMPORARILY DISABLED: Face emotion detection (smile/frown/surprise) to focus on gesture testing.
+        // All face detections return NEUTRAL cue. Hand gestures (wave, thumbs, fist bump) still active.
+        return SocialCue(CueType.NEUTRAL, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())
     }
 
     private fun normalizeGestureLabel(label: String): String {
@@ -96,7 +90,7 @@ class CueFusionEngine {
     }
 
     private fun isHandCue(type: CueType): Boolean {
-        return type == CueType.WAVE || type == CueType.POINT || type == CueType.THUMBS_UP || type == CueType.THUMBS_DOWN || type == CueType.HANDSHAKE_REACH
+        return type == CueType.WAVE || type == CueType.POINT || type == CueType.THUMBS_UP || type == CueType.THUMBS_DOWN || type == CueType.FIST_BUMP
     }
 
     private fun direction(centerX: Float): Direction = when {

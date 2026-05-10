@@ -47,7 +47,15 @@ class CameraStreamProvider(
 
         fun frames(): Flow<CameraFrame> = frameFlow.asSharedFlow()
 
-        suspend fun start(lifecycleOwner: LifecycleOwner) = withContext(Dispatchers.Main) {
+        suspend fun start(lifecycleOwner: LifecycleOwner, useFrontCamera: Boolean = false) = withContext(Dispatchers.Main) {
+            bindCameraUseCases(lifecycleOwner, useFrontCamera)
+        }
+
+        suspend fun switchCamera(lifecycleOwner: LifecycleOwner, useFrontCamera: Boolean) = withContext(Dispatchers.Main) {
+            bindCameraUseCases(lifecycleOwner, useFrontCamera)
+        }
+
+        private fun bindCameraUseCases(lifecycleOwner: LifecycleOwner, useFrontCamera: Boolean) {
             val provider = ProcessCameraProvider.getInstance(context).get()
             cameraProvider = provider
 
@@ -70,19 +78,25 @@ class CameraStreamProvider(
             }
             
             provider.unbindAll()
+
+            val selector = if (useFrontCamera) {
+                CameraSelector.DEFAULT_FRONT_CAMERA
+            } else {
+                CameraSelector.DEFAULT_BACK_CAMERA
+            }
             
-            // Bind preview and analysis to lifecycle using the rear (back) camera by default
+            // Bind preview and analysis to lifecycle using the requested lens.
             if (previewView != null) {
                 provider.bindToLifecycle(
                     lifecycleOwner,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    selector,
                     previewUseCase,
                     analysis
                 )
             } else {
                 provider.bindToLifecycle(
                     lifecycleOwner,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    selector,
                     analysis
                 )
             }
