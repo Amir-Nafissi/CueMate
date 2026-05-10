@@ -45,13 +45,35 @@ class MediaPipeInferenceEngine(
         check(!closed) { "Inference engine is closed" }
         val timestampMs = nextTimestampMs()
 
-        // TEMPORARILY DISABLED: Face detection to focus on gesture testing.
-        // Face detection is skipped; only hand gestures are analyzed.
+        val faceResult = faceLandmarker.detectForVideo(image, timestampMs)
         val handResult = handLandmarker.detectForVideo(image, timestampMs)
         val gestureResult = gestureRecognizer.recognizeForVideo(image, timestampMs)
 
-        // Return empty face detections
-        val faceDetections = emptyList<RawFaceDetection>()
+        val faceDetections = mutableListOf<RawFaceDetection>()
+        val faceLandmarks = faceResult.faceLandmarks()
+        for (landmarks in faceLandmarks) {
+            if (landmarks.isEmpty()) continue
+            val centerX = landmarks.mapNotNull { it.x() }.average().toFloat().coerceIn(0.0f, 1.0f)
+            val smile = smileScore(landmarks)
+            val frown = frownScore(landmarks)
+            val surprise = surpriseScore(landmarks)
+            val confidence = faceConfidence(landmarks)
+            val points = landmarks.mapNotNull { lm ->
+                val x = lm.x()?.coerceIn(0.0f, 1.0f)
+                val y = lm.y()?.coerceIn(0.0f, 1.0f)
+                if (x == null || y == null) null else com.cuemate.core.model.NormalizedPoint(x, y)
+            }
+            faceDetections.add(
+                RawFaceDetection(
+                    normalizedCenterX = centerX,
+                    smileScore = smile,
+                    surpriseScore = surprise,
+                    frownScore = frown,
+                    confidence = confidence,
+                    landmarks = points,
+                )
+            )
+        }
 
         val handDetections = mutableListOf<RawHandDetection>()
         val gestureSets = gestureResult.gestures()

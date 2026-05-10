@@ -80,9 +80,13 @@ class CueFusionEngine {
         if (face.confidence < PipelineConfig.CONFIDENCE_THRESHOLD) {
             return SocialCue(CueType.NEUTRAL, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())
         }
-        // TEMPORARILY DISABLED: Face emotion detection (smile/frown/surprise) to focus on gesture testing.
-        // All face detections return NEUTRAL cue. Hand gestures (wave, thumbs, fist bump) still active.
-        return SocialCue(CueType.NEUTRAL, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())
+        val faceCueType = when {
+            face.smileScore >= 0.50f -> CueType.SMILE
+            face.frownScore >= 0.40f -> CueType.FROWN
+            face.surpriseScore >= 0.55f -> CueType.SURPRISE
+            else -> CueType.NEUTRAL
+        }
+        return SocialCue(faceCueType, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())
     }
 
     private fun normalizeGestureLabel(label: String): String {
