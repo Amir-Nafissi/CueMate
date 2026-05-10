@@ -4,13 +4,14 @@
     import androidx.camera.core.CameraSelector
     import androidx.camera.core.ImageAnalysis
     import androidx.camera.core.ImageProxy
+    import androidx.camera.core.Preview
     import androidx.camera.lifecycle.ProcessCameraProvider
+    import androidx.camera.view.PreviewView
     import androidx.lifecycle.LifecycleOwner
     import com.google.mediapipe.framework.image.MediaImageBuilder
     import com.google.mediapipe.framework.image.MPImage
     import kotlinx.coroutines.CoroutineDispatcher
     import kotlinx.coroutines.Dispatchers
-    import kotlinx.coroutines.channels.BufferOverflow
     import kotlinx.coroutines.flow.Flow
     import kotlinx.coroutines.flow.MutableSharedFlow
     import kotlinx.coroutines.flow.asSharedFlow
@@ -18,23 +19,30 @@
     import java.util.concurrent.ExecutorService
     import java.util.concurrent.Executors
 
-    class CameraStreamProvider(
-        private val context: android.content.Context,
-        private val dispatcher: CoroutineDispatcher = Dispatchers.IO
+data class CameraFrame(
+    val image: MPImage,
+    private val imageProxy: ImageProxy,
+) {
+    fun close() {
+        imageProxy.close()
+    }
+}
+
+class CameraStreamProvider(
+        private val context: android.content.Context
     ) {
         private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-        private val frameFlow = MutableSharedFlow<MPImage>(
-            extraBufferCapacity = 1,
-            onBufferOverflow = BufferOverflow.DROP_OLDEST
-        )
+        private val frameFlow = MutableSharedFlow<CameraFrame>()
 
         private var lastFrameTimestampMs = 0L
         private var cameraProvider: ProcessCameraProvider? = null
         private var imageAnalysis: ImageAnalysis? = null
+        private var preview: Preview? = null
+        var previewView: PreviewView? = null
 
-        fun frames(): Flow<MPImage> = frameFlow.asSharedFlow()
+        fun frames(): Flow<CameraFrame> = frameFlow.asSharedFlow()
 
-        suspend fun start(lifecycleOwner: LifecycleOwner) = withContext(dispatcher) {
+        suspend fun start(lifecycleOwner: LifecycleOwner) = withContext(Dispatchers.Main) {
             val provider = ProcessCameraProvider.getInstance(context).get()
             cameraProvider = provider
 
@@ -47,18 +55,38 @@
             }
 
             imageAnalysis = analysis
+            
+            // Create and bind preview if PreviewView is available
+            val previewUseCase = Preview.Builder().build()
+            preview = previewUseCase
+            previewView?.let { view ->
+                previewUseCase.setSurfaceProvider(view.surfaceProvider)
+            }
+            
             provider.unbindAll()
-            provider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_FRONT_CAMERA,
-                analysis
-            )
+            
+            // Bind preview and analysis to lifecycle
+            if (previewView != null) {
+                provider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_FRONT_CAMERA,
+                    previewUseCase,
+                    analysis
+                )
+            } else {
+                provider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_FRONT_CAMERA,
+                    analysis
+                )
+            }
         }
 
-        suspend fun stop() = withContext(dispatcher) {
+        suspend fun stop() = withContext(Dispatchers.Main) {
             cameraProvider?.unbindAll()
             imageAnalysis?.clearAnalyzer()
             imageAnalysis = null
+            preview = null
         }
 
         fun close() {
@@ -67,16 +95,18 @@
         }
 
         private fun processImageProxy(imageProxy: ImageProxy) {
-            try {
-                val now = SystemClock.elapsedRealtime()
-                if (now - lastFrameTimestampMs < (1000L / 12L)) {
-                    return
-                }
-                lastFrameTimestampMs = now
-                val mediaImage = imageProxy.image ?: return
-                val mpImage = MediaImageBuilder(mediaImage).build()
-                frameFlow.tryEmit(mpImage)
-            } finally {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastFrameTimestampMs < (1000L / 12L)) {
+                imageProxy.close()
+                return
+            }
+            lastFrameTimestampMs = now
+            val mediaImage = imageProxy.image ?: run {
+                imageProxy.close()
+                return
+            }
+            val mpImage = MediaImageBuilder(mediaImage).build()
+            if (!frameFlow.tryEmit(CameraFrame(mpImage, imageProxy))) {
                 imageProxy.close()
             }
         }

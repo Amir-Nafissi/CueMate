@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.LifecycleOwner
 import com.cuemate.camera.CameraStreamProvider
+import com.cuemate.camera.CameraFrame
 import com.cuemate.core.model.SocialCue
 import com.cuemate.feedback.AccessibilityFeedbackManager
 import com.cuemate.inference.MediaPipeInferenceEngine
@@ -58,29 +59,50 @@ class CueMateViewModel(
     fun start(lifecycleOwner: LifecycleOwner) {
         if (_state.value.isRunning) return
         activeLifecycleOwner = lifecycleOwner
-        processingJob = viewModelScope.launch {
-            cameraStreamProvider.start(lifecycleOwner)
-            cameraStreamProvider.frames().collect { image ->
-                val result = inferenceEngine.analyze(image)
-                cueFusionEngine.process(result)
-            }
-        }
-        feedbackJob = viewModelScope.launch {
-            cueFusionEngine.cues().collect { cue ->
-                _state.value = _state.value.copy(lastCue = cue)
-                feedbackEngine.provideFeedback(cue)
-            }
-        }
-        feedbackEngine.startVoiceCommands { command ->
-            when (command.lowercase()) {
-                "start" -> startCurrentSession()
-                "stop" -> stop()
-                "mute" -> setSpeechEnabled(false)
-                "faster speech" -> viewModelScope.launch { settingsRepository.setSpeechRate(1.2f) }
-                "slower speech" -> viewModelScope.launch { settingsRepository.setSpeechRate(0.8f) }
-            }
-        }
         _state.value = _state.value.copy(isRunning = true, errorMessage = null)
+
+        processingJob = viewModelScope.launch {
+            try {
+                cameraStreamProvider.start(lifecycleOwner)
+                cameraStreamProvider.frames().collect { frame ->
+                    try {
+                        val result = inferenceEngine.analyze(frame.image)
+                        cueFusionEngine.process(result)
+                    } finally {
+                        frame.close()
+                    }
+                }
+            } catch (throwable: Throwable) {
+                handleStartupFailure("Unable to start camera pipeline", throwable)
+            }
+        }
+
+        feedbackJob = viewModelScope.launch {
+            try {
+                cueFusionEngine.cues().collect { cue ->
+                    _state.value = _state.value.copy(lastCue = cue)
+                    feedbackEngine.provideFeedback(cue)
+                }
+            } catch (throwable: Throwable) {
+                handleStartupFailure("Feedback pipeline stopped", throwable)
+            }
+        }
+
+        runCatching {
+            feedbackEngine.startVoiceCommands { command ->
+                when (command.lowercase()) {
+                    "start" -> startCurrentSession()
+                    "stop" -> stop()
+                    "mute" -> setSpeechEnabled(false)
+                    "faster speech" -> viewModelScope.launch { settingsRepository.setSpeechRate(1.2f) }
+                    "slower speech" -> viewModelScope.launch { settingsRepository.setSpeechRate(0.8f) }
+                }
+            }
+        }.onFailure { throwable ->
+            _state.value = _state.value.copy(
+                errorMessage = "Voice commands unavailable: ${throwable.message ?: throwable.javaClass.simpleName}"
+            )
+        }
     }
 
     fun stop() {
@@ -102,6 +124,14 @@ class CueMateViewModel(
         viewModelScope.launch {
             _state.value = _state.value.copy(errorMessage = null)
         }
+    }
+
+    private fun handleStartupFailure(prefix: String, throwable: Throwable) {
+        _state.value = _state.value.copy(
+            isRunning = false,
+            errorMessage = "$prefix: ${throwable.message ?: throwable.javaClass.simpleName}"
+        )
+        stop()
     }
 
     fun setSpeechEnabled(enabled: Boolean) {
