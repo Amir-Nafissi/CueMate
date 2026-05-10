@@ -71,18 +71,18 @@ class CameraStreamProvider(
             
             provider.unbindAll()
             
-            // Bind preview and analysis to lifecycle
+            // Bind preview and analysis to lifecycle using the rear (back) camera by default
             if (previewView != null) {
                 provider.bindToLifecycle(
                     lifecycleOwner,
-                    CameraSelector.DEFAULT_FRONT_CAMERA,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
                     previewUseCase,
                     analysis
                 )
             } else {
                 provider.bindToLifecycle(
                     lifecycleOwner,
-                    CameraSelector.DEFAULT_FRONT_CAMERA,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
                     analysis
                 )
             }

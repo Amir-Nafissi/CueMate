@@ -80,10 +80,12 @@ class CueFusionEngine {
         if (face.confidence < PipelineConfig.CONFIDENCE_THRESHOLD) {
             return SocialCue(CueType.NEUTRAL, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())
         }
+        // Map face blend scores into user-friendly cues: prefer clear smile -> happy, clear frown -> upset,
+        // keep surprise detected separately. Thresholds tuned for recall of common expressions.
         val type = when {
-            face.smileScore >= 0.40f -> CueType.SMILE
+            face.smileScore >= 0.50f -> CueType.SMILE    // treat as happy
+            face.frownScore >= 0.40f -> CueType.FROWN    // treat as upset
             face.surpriseScore >= 0.55f -> CueType.SURPRISE
-            face.frownScore >= 0.97f -> CueType.FROWN
             else -> CueType.NEUTRAL
         }
         return SocialCue(type, direction(face.normalizedCenterX), face.confidence, System.currentTimeMillis())

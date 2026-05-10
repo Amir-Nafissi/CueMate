@@ -40,6 +40,8 @@ class AccessibilityFeedbackManager(
     @Volatile
     private var pendingCue: SocialCue? = null
     @Volatile
+    private var pendingAnnouncement: String? = null
+    @Volatile
     private var hapticIntensity = 0.75f
 
     override suspend fun provideFeedback(cue: SocialCue) = withContext(Dispatchers.Main) {
@@ -70,6 +72,29 @@ class AccessibilityFeedbackManager(
         if (!enabled) {
             textToSpeech?.stop()
         }
+    }
+
+    /**
+     * Immediately announce a short status message using TTS. If TTS is not ready, the message
+     * will be stored and spoken once initialization completes.
+     * Returns true if the message was spoken synchronously.
+     */
+    fun announceStatus(message: String): Boolean {
+        val tts = textToSpeech
+        if (tts == null) {
+            pendingAnnouncement = message
+            Log.d("AccessibilityFeedback", "announceStatus deferred: TTS instance null for '$message'")
+            return false
+        }
+        if (!ttsReady) {
+            pendingAnnouncement = message
+            Log.d("AccessibilityFeedback", "announceStatus deferred: TTS not ready for '$message'")
+            return false
+        }
+        tts.stop()
+        val result = tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, "announce_${System.currentTimeMillis()}")
+        Log.d("AccessibilityFeedback", "announceStatus: '$message' result=$result")
+        return result == TextToSpeech.SUCCESS
     }
 
     fun setHapticsEnabled(enabled: Boolean) {
@@ -184,6 +209,10 @@ class AccessibilityFeedbackManager(
             ttsReady = languageResult >= TextToSpeech.LANG_AVAILABLE
             Log.d("AccessibilityFeedback", "onInit: status=SUCCESS, locale=${Locale.US}, languageResult=$languageResult, ttsReady=$ttsReady")
             if (ttsReady) {
+                pendingAnnouncement?.let { msg ->
+                    pendingAnnouncement = null
+                    announceStatus(msg)
+                }
                 pendingCue?.let { cue ->
                     pendingCue = null
                     speakForCue(cue)

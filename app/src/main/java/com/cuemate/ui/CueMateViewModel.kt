@@ -158,9 +158,9 @@ class CueMateViewModel(
         } ?: "No hand cue"
         val faceSummary = result.faceDetections.maxByOrNull { it.confidence }?.let { face ->
             val dominantFaceCue = when {
-                face.smileScore >= 0.40f -> "smile"
+                face.smileScore >= 0.50f -> "happy"
+                face.frownScore >= 0.40f -> "upset"
                 face.surpriseScore >= 0.55f -> "surprise"
-                face.frownScore >= 0.97f -> "frown"
                 else -> "neutral"
             }
             "Face $dominantFaceCue ${(face.confidence * 100).toInt()}%"
@@ -170,12 +170,27 @@ class CueMateViewModel(
 
     fun setSpeechEnabled(enabled: Boolean) {
         viewModelScope.launch {
+            // Announce the change immediately, then persist the setting
+            try {
+                val msg = if (enabled) "Sound on" else "Sound off"
+                feedbackEngine.announceStatus(msg)
+            } catch (e: Exception) {
+                Log.w("CueMateViewModel", "announceStatus failed", e)
+            }
+            _state.value = _state.value.copy(speechEnabled = enabled)
             settingsRepository.setSpeechEnabled(enabled)
         }
     }
 
     fun setHapticsEnabled(enabled: Boolean) {
         viewModelScope.launch {
+            try {
+                val msg = if (enabled) "Haptics on" else "Haptics off"
+                feedbackEngine.announceStatus(msg)
+            } catch (e: Exception) {
+                Log.w("CueMateViewModel", "announceStatus failed", e)
+            }
+            _state.value = _state.value.copy(hapticsEnabled = enabled)
             settingsRepository.setHapticsEnabled(enabled)
         }
     }
