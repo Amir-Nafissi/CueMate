@@ -44,6 +44,7 @@ class MediaPipeInferenceEngine(
     suspend fun analyze(image: MPImage): InferenceResult = withContext(dispatcher) {
         check(!closed) { "Inference engine is closed" }
         val timestampMs = nextTimestampMs()
+        val ar = image.width.toFloat() / image.height.toFloat()
 
         val faceResult = faceLandmarker.detectForVideo(image, timestampMs)
         val handResult = handLandmarker.detectForVideo(image, timestampMs)
@@ -54,9 +55,9 @@ class MediaPipeInferenceEngine(
         for (landmarks in faceLandmarks) {
             if (landmarks.isEmpty()) continue
             val centerX = landmarks.mapNotNull { it.x() }.average().toFloat().coerceIn(0.0f, 1.0f)
-            val smile = smileScore(landmarks)
-            val frown = frownScore(landmarks)
-            val surprise = surpriseScore(landmarks)
+            val smile = smileScore(landmarks, ar)
+            val frown = frownScore(landmarks, ar)
+            val surprise = surpriseScore(landmarks, ar)
             val confidence = faceConfidence(landmarks)
             val points = landmarks.mapNotNull { lm ->
                 val x = lm.x()?.coerceIn(0.0f, 1.0f)
@@ -361,39 +362,77 @@ class MediaPipeInferenceEngine(
         }
     }
 
-    private fun smileScore(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): Float {
+    private fun distance(
+        a: com.google.mediapipe.tasks.components.containers.NormalizedLandmark?,
+        b: com.google.mediapipe.tasks.components.containers.NormalizedLandmark?,
+        ar: Float
+    ): Float {
+        if (a == null || b == null) return 0f
+        val dx = (a.x() - b.x()) * ar
+        val dy = a.y() - b.y()
+        return kotlin.math.sqrt(dx * dx + dy * dy)
+    }
+
+    private fun smileScore(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>, ar: Float): Float {
         val leftMouth = landmarks.getOrNull(61)
         val rightMouth = landmarks.getOrNull(291)
-        val upperLip = landmarks.getOrNull(13)
-        val lowerLip = landmarks.getOrNull(14)
-        if (leftMouth == null || rightMouth == null || upperLip == null || lowerLip == null) return 0f
-        val mouthWidth = (rightMouth.x() - leftMouth.x()).let { kotlin.math.abs(it) }
-        val mouthOpen = (lowerLip.y() - upperLip.y()).let { kotlin.math.abs(it) }
-        val score = ((mouthWidth * 1.2f) + (mouthOpen * 0.8f)).coerceIn(0.0f, 1.0f)
-        Log.d("MediaPipeInference", "Smile Score: $score (width=$mouthWidth, open=$mouthOpen)")
+        val leftEyeOuter = landmarks.getOrNull(33)
+        val rightEyeOuter = landmarks.getOrNull(263)
+        
+        if (leftMouth == null || rightMouth == null || leftEyeOuter == null || rightEyeOuter == null) return 0f
+        
+        val mouthWidth = distance(leftMouth, rightMouth, ar)
+        val faceWidth = distance(leftEyeOuter, rightEyeOuter, ar).coerceAtLeast(0.001f)
+        
+        val relativeWidth = mouthWidth / faceWidth
+        val score = ((relativeWidth - 0.58f) / 0.12f).coerceIn(0.0f, 1.0f)
+        Log.d("MediaPipeInference", "Smile Score: $score (relWidth=$relativeWidth, mouthWidth=$mouthWidth, faceWidth=$faceWidth)")
         return score
     }
 
-    private fun surpriseScore(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): Float {
+    private fun surpriseScore(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>, ar: Float): Float {
         val upperLip = landmarks.getOrNull(13)
         val lowerLip = landmarks.getOrNull(14)
+        val topFace = landmarks.getOrNull(10)
+        val bottomFace = landmarks.getOrNull(152)
         val leftEyeUpper = landmarks.getOrNull(159)
         val leftEyeLower = landmarks.getOrNull(145)
-        if (upperLip == null || lowerLip == null || leftEyeUpper == null || leftEyeLower == null) return 0f
-        val mouthOpen = kotlin.math.abs(lowerLip.y() - upperLip.y())
-        val eyeOpen = kotlin.math.abs(leftEyeLower.y() - leftEyeUpper.y())
-        return (mouthOpen * 1.5f + eyeOpen * 0.5f).coerceIn(0.0f, 1.0f)
+
+        if (upperLip == null || lowerLip == null || topFace == null || bottomFace == null || leftEyeUpper == null || leftEyeLower == null) return 0f
+
+        val mouthOpen = distance(upperLip, lowerLip, ar)
+        val leftEyeOpen = distance(leftEyeUpper, leftEyeLower, ar)
+        val faceHeight = distance(topFace, bottomFace, ar).coerceAtLeast(0.001f)
+
+        val relativeMouthOpen = mouthOpen / faceHeight
+        val relativeEyeOpen = leftEyeOpen / faceHeight
+
+        val mouthScore = ((relativeMouthOpen - 0.03f) / 0.05f).coerceIn(0.0f, 1.0f)
+        val eyeScore = ((relativeEyeOpen - 0.035f) / 0.02f).coerceIn(0.0f, 1.0f)
+
+        val score = (mouthScore * 0.7f + eyeScore * 0.3f)
+        Log.d("MediaPipeInference", "Surprise Score: $score (relMouth=$relativeMouthOpen, relEye=$relativeEyeOpen)")
+        return score
     }
 
-    private fun frownScore(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): Float {
+    private fun frownScore(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>, ar: Float): Float {
         val leftMouth = landmarks.getOrNull(61)
         val rightMouth = landmarks.getOrNull(291)
-        val upperLip = landmarks.getOrNull(13)
-        val lowerLip = landmarks.getOrNull(14)
-        if (leftMouth == null || rightMouth == null || upperLip == null || lowerLip == null) return 0f
-        val mouthWidth = kotlin.math.abs(rightMouth.x() - leftMouth.x())
-        val lipGap = kotlin.math.abs(lowerLip.y() - upperLip.y())
-        return (1.0f - mouthWidth + (0.2f - lipGap).coerceAtLeast(0f)).coerceIn(0.0f, 1.0f)
+        val centerMouth = landmarks.getOrNull(13)
+        val topFace = landmarks.getOrNull(10)
+        val bottomFace = landmarks.getOrNull(152)
+
+        if (leftMouth == null || rightMouth == null || centerMouth == null || topFace == null || bottomFace == null) return 0f
+
+        val faceHeight = distance(topFace, bottomFace, ar).coerceAtLeast(0.001f)
+
+        val avgCornerY = (leftMouth.y() + rightMouth.y()) / 2.0f
+        val dropY = avgCornerY - centerMouth.y()
+        val relativeDrop = dropY / faceHeight
+
+        val score = ((relativeDrop - 0.015f) / 0.02f).coerceIn(0.0f, 1.0f)
+        Log.d("MediaPipeInference", "Frown Score: $score (relDrop=$relativeDrop)")
+        return score
     }
 
     private fun faceConfidence(landmarks: List<com.google.mediapipe.tasks.components.containers.NormalizedLandmark>): Float {
